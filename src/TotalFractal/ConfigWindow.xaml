@@ -37,6 +37,11 @@
                                 Value="{Binding Iterations.Value, Mode=TwoWay}"
                                 IsSnapToTickEnabled="True" TickFrequency="1" VerticalAlignment="Center" />
                     </DockPanel>
+                    <DockPanel Margin="2,6,2,3">
+                        <TextBlock Width="110" Text="Coeff pair" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding CoeffPairs}" DisplayMemberPath="Label"
+                                  SelectedItem="{Binding SelectedCoeffPair, Mode=TwoWay}" />
+                    </DockPanel>
                 </StackPanel>
             </GroupBox>
 

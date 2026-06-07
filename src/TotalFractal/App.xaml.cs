@@ -45,7 +45,15 @@ public partial class App : Application
                 viewCenter = vc;
                 viewHalfHeight = vh;
             }
-            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, display, viewCenter, viewHalfHeight);
+            // --coeffpair p,q uses 1-based coefficient numbers (e.g. 1,7 = a1,a7); -1,-1 = none.
+            int coeffI = -1, coeffJ = -1;
+            if (TryGetCoeffPair(e.Args, out int ci, out int cj))
+            {
+                coeffI = ci;
+                coeffJ = cj;
+            }
+            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, display,
+                viewCenter, viewHalfHeight, coeffI, coeffJ);
             Shutdown();
             return;
         }
@@ -67,7 +75,7 @@ public partial class App : Application
     private static void RunHeadlessScreenshot(
         string path, int width, int height, QuadraticMap map,
         int axisCount, int pointsPerAxis, int splatSize, int iterations, int displayMode,
-        Vector2 viewCenter, float viewHalfHeight)
+        Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ)
     {
         using var context = new OffscreenContext(width, height);
         using var renderer = new Renderer();
@@ -75,8 +83,9 @@ public partial class App : Application
         renderer.Resize(width, height);
         renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
         renderer.SetMap(map, splatSize - 1, iterations); // splat size 1 = single pixel (radius 0)
-        renderer.SetDisplayMode(displayMode);
+        renderer.SetCoeffPair(coeffI, coeffJ);
         renderer.SetView(viewCenter, viewHalfHeight);
+        renderer.SetDisplayMode(displayMode); // clamped against the active panel count
         renderer.RenderFrame();
         ScreenshotWriter.Save(renderer.ReadPixels(), renderer.Width, renderer.Height, path);
     }
@@ -163,6 +172,29 @@ public partial class App : Application
                 return true;
             }
             return false;
+        }
+        return false;
+    }
+
+    /// <summary>Parse "--coeffpair p,q" (1-based coefficient numbers 1..12) into 0-based i&lt;j.</summary>
+    private static bool TryGetCoeffPair(string[] args, out int i, out int j)
+    {
+        i = -1;
+        j = -1;
+        for (int k = 0; k < args.Length - 1; k++)
+        {
+            if (args[k] != "--coeffpair")
+                continue;
+
+            string[] parts = args[k + 1].Split(',');
+            if (parts.Length != 2 ||
+                !int.TryParse(parts[0], out int p) || !int.TryParse(parts[1], out int q) ||
+                p < 1 || p > 12 || q < 1 || q > 12 || p == q)
+                return false;
+
+            i = Math.Min(p, q) - 1;
+            j = Math.Max(p, q) - 1;
+            return true;
         }
         return false;
     }

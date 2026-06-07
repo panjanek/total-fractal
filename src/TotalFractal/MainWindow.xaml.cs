@@ -38,6 +38,18 @@ public partial class MainWindow : Window
         _vm.MapChanged += ApplyMap;       // coefficients / splat: cheap UBO-only update
         _vm.SeedsChanged += ApplySeeds;   // axis count / points per axis: seed buffer rebuild
         _vm.DisplayChanged += ApplyDisplay; // which panel is maximized: display-only
+        _vm.CoeffPairChanged += ApplyCoeffPair; // coefficients-fractal pair selection
+    }
+
+    /// <summary>Push the selected coefficients-fractal pair (and any clamped display mode), then repaint.</summary>
+    private void ApplyCoeffPair()
+    {
+        if (!_ready)
+            return;
+
+        _renderer.SetCoeffPair(_vm.CoeffI, _vm.CoeffJ);
+        _renderer.SetDisplayMode(_vm.DisplayModeIndex); // mode may have been clamped on switch to "none"
+        _glControl!.Invalidate();
     }
 
     /// <summary>Push the selected display mode (which panel is maximized) and repaint.</summary>
@@ -152,6 +164,7 @@ public partial class MainWindow : Window
         _ready = true;
         ApplySeeds(); // sync renderer to the view-model's initial values, then repaint
         ApplyMap();
+        ApplyCoeffPair();
         ApplyDisplay();
     }
 

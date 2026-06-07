@@ -20,9 +20,11 @@ public sealed class Renderer : IDisposable
 {
     private ComputeProgram _solve = null!;
     private ComputeProgram _escape = null!;
+    private ComputeProgram _coeffProgram = null!;
     private ShaderProgram _display = null!;
     private Texture _scatterTex = null!;
     private Texture _fractalTex = null!;
+    private Texture _coeffTex = null!;
     private Framebuffer _fbo = null!;
     private FullscreenQuad _quad = null!;
     private ShaderStorageBuffer _seeds = null!;
@@ -50,8 +52,12 @@ public sealed class Renderer : IDisposable
     // Max iterations for the escape-time fractal panel. Hardcoded for now (future slider).
     private const int MaxFractalIterations = 200;
 
-    // Which panel is maximized: 0 = grid, 1 = escape fractal. The other becomes the lower-left inset.
+    // Which panel is maximized (index into the active texture list). The others become insets.
     private int _displayMode;
+
+    // Coefficients-fractal pair (0-based indexes into a1..a12); -1 = none (panel disabled).
+    private int _coeffI = -1;
+    private int _coeffJ = -1;
 
     // Pending seed grid. Set on the UI thread (pure CPU); the actual GL upload is deferred to
     // RenderFrame (which runs with the context current), keeping all GL calls inside Paint.
@@ -68,6 +74,7 @@ public sealed class Renderer : IDisposable
 
         _solve = new ComputeProgram(EmbeddedShaderSource.Load("solve.comp"), "solve");
         _escape = new ComputeProgram(EmbeddedShaderSource.Load("escape.comp"), "escape");
+        _coeffProgram = new ComputeProgram(EmbeddedShaderSource.Load("coeffs.comp"), "coeffs");
         _display = new ShaderProgram(
             EmbeddedShaderSource.Load("display.vert"),
             EmbeddedShaderSource.Load("display.frag"),
@@ -75,6 +82,7 @@ public sealed class Renderer : IDisposable
 
         _scatterTex = new Texture(SizedInternalFormat.Rgba8);
         _fractalTex = new Texture(SizedInternalFormat.Rgba8);
+        _coeffTex = new Texture(SizedInternalFormat.Rgba8);
         _fbo = new Framebuffer(SizedInternalFormat.Rgba8);
         _quad = new FullscreenQuad();
 
@@ -103,8 +111,19 @@ public sealed class Renderer : IDisposable
         _pointCount = points.Length;
     }
 
-    /// <summary>Select which panel is maximized: 0 = grid, 1 = escape fractal.</summary>
-    public void SetDisplayMode(int mode) => _displayMode = mode;
+    /// <summary>Select which panel is maximized (index into the active texture list).</summary>
+    public void SetDisplayMode(int mode) => _displayMode = Math.Clamp(mode, 0, ActivePanelCount - 1);
+
+    /// <summary>Set the coefficients-fractal pair (0-based indexes); pass (-1, -1) to disable it.</summary>
+    public void SetCoeffPair(int i, int j)
+    {
+        _coeffI = i;
+        _coeffJ = j;
+        _displayMode = Math.Clamp(_displayMode, 0, ActivePanelCount - 1);
+    }
+
+    // grid + escape are always active; the coefficients fractal adds a third when a pair is set.
+    private int ActivePanelCount => _coeffI >= 0 ? 3 : 2;
 
     /// <summary>Set the map coefficients, splat radius, and iteration count.</summary>
     public void SetMap(QuadraticMap map, int splatRadius, int iterations)
@@ -154,6 +173,7 @@ public sealed class Renderer : IDisposable
         // Both textures are full-resolution; either can be maximized or shown as the inset
         // (the inset viewport downscales via the sampler), so the toggle needs no reallocation.
         _fractalTex.Allocate(_width, _height);
+        _coeffTex.Allocate(_width, _height);
         _fbo.Resize(_width, _height);
     }
 
@@ -182,7 +202,7 @@ public sealed class Renderer : IDisposable
             CC = cC,
             View = viewRect,
             Dims = new Vector4i(_pointCount, _width, _height, _splatRadius),
-            Iter = new Vector4i(_iterations, MaxFractalIterations, 0, 0),
+            Iter = new Vector4i(_iterations, MaxFractalIterations, _coeffI, _coeffJ),
         };
         _config.Update(ref cfg);
         _config.Bind(1);
@@ -194,27 +214,47 @@ public sealed class Renderer : IDisposable
         _seeds.Bind(0);
         _solve.Dispatch((_pointCount + 255) / 256, 1, 1);
 
-        // 3) Escape-time fractal pass (filled Julia set), one invocation per panel pixel.
-        //    No clear needed - every pixel is written.
+        // 3) Escape-time fractal pass (filled Julia set), one invocation per pixel. No clear needed.
         _escape.Use();
         _fractalTex.BindImage(1, TextureAccess.WriteOnly);
         _escape.Dispatch((_fractalTex.Width + 7) / 8, (_fractalTex.Height + 7) / 8, 1);
 
-        // One barrier covers both image writes before the display pass samples the textures.
+        // 4) Coefficients (parameter-space) fractal pass - only when a coefficient pair is selected.
+        if (_coeffI >= 0)
+        {
+            _coeffProgram.Use();
+            _coeffTex.BindImage(2, TextureAccess.WriteOnly);
+            _coeffProgram.Dispatch((_coeffTex.Width + 7) / 8, (_coeffTex.Height + 7) / 8, 1);
+        }
+
+        // One barrier covers all image writes before the display pass samples the textures.
         GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit |
                          MemoryBarrierFlags.TextureFetchBarrierBit);
 
-        // 4) Display pass - composite the panels onto the offscreen FBO.
+        // 5) Display pass - composite the active panels onto the offscreen FBO.
         _fbo.Bind();
         GL.ClearColor(0f, 0f, 0f, 1f);
         GL.Viewport(0, 0, _width, _height);
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
-        // Pick which texture is maximized vs. the lower-left inset (GL origin = bottom-left).
-        Texture maxTex = _displayMode == 1 ? _fractalTex : _scatterTex;
-        Texture insetTex = _displayMode == 1 ? _scatterTex : _fractalTex;
-        DrawPanel(maxTex, 0, 0, _width, _height);                      // maximized, full window
-        DrawPanel(insetTex, 0, 0, _width / 3, _height / 3);            // inset, lower-left third
+        // Active textures in fixed order; coefficients fractal only when a pair is selected.
+        Texture[] active = _coeffI >= 0
+            ? new[] { _scatterTex, _fractalTex, _coeffTex }
+            : new[] { _scatterTex, _fractalTex };
+        int mode = Math.Clamp(_displayMode, 0, active.Length - 1);
+
+        // Maximized panel fills the window; the remaining ones go to the lower-left then lower-right
+        // insets (GL origin = bottom-left). Mode 0 => grid full, escape lower-left, coeffs lower-right.
+        DrawPanel(active[mode], 0, 0, _width, _height);
+        int iw = _width / 3, ih = _height / 3, slot = 0;
+        for (int k = 0; k < active.Length; k++)
+        {
+            if (k == mode)
+                continue;
+            int x = slot == 0 ? 0 : _width - iw; // slot 0 = lower-left, slot 1 = lower-right
+            DrawPanel(active[k], x, 0, iw, ih);
+            slot++;
+        }
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
     }
@@ -264,8 +304,10 @@ public sealed class Renderer : IDisposable
         _fbo?.Dispose();
         _scatterTex?.Dispose();
         _fractalTex?.Dispose();
+        _coeffTex?.Dispose();
         _display?.Dispose();
         _escape?.Dispose();
+        _coeffProgram?.Dispose();
         _solve?.Dispose();
     }
 }

@@ -34,17 +34,47 @@ public sealed class ParametersViewModel
     public SliderParam Iterations { get; } =
         new() { Label = "Iterations", Min = 1, Max = 100, Value = 1 };
 
-    /// <summary>Which panel is maximized: 0 = grid, 1 = escape fractal. Toggled by the button.</summary>
+    /// <summary>Which panel is maximized: 0 = grid, 1 = escape fractal, 2 = coefficients fractal.</summary>
     public int DisplayModeIndex { get; private set; }
 
-    /// <summary>Toggles <see cref="DisplayModeIndex"/> between the two display modes.</summary>
+    /// <summary>Cycles <see cref="DisplayModeIndex"/> through the active display modes.</summary>
     public ICommand ToggleDisplayCommand { get; }
+
+    /// <summary>"none" + the 66 coefficient pairs (a1-a2 .. a11-a12) for the parameter-space fractal.</summary>
+    public IReadOnlyList<CoeffPair> CoeffPairs { get; }
+
+    private CoeffPair _selectedCoeffPair;
+    /// <summary>Selected coefficient pair; "none" disables the coefficients fractal panel.</summary>
+    public CoeffPair SelectedCoeffPair
+    {
+        get => _selectedCoeffPair;
+        set
+        {
+            if (ReferenceEquals(_selectedCoeffPair, value) || value is null)
+                return;
+            _selectedCoeffPair = value;
+            // Switching to "none" may drop the active mode count; keep the index in range.
+            if (DisplayModeIndex >= ActiveModeCount)
+                DisplayModeIndex = ActiveModeCount - 1;
+            CoeffPairChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Selected coefficient indexes (0-based); -1 when "none".</summary>
+    public int CoeffI => SelectedCoeffPair.I;
+    public int CoeffJ => SelectedCoeffPair.J;
+
+    /// <summary>Number of active display modes: 2 (grid, escape) or 3 when a coeff pair is selected.</summary>
+    public int ActiveModeCount => SelectedCoeffPair.IsNone ? 2 : 3;
 
     /// <summary>Cheap update: coefficients or splat changed (UBO only, no buffer rebuild).</summary>
     public event Action? MapChanged;
 
     /// <summary>Display-only update: which panel is maximized changed (no recompute).</summary>
     public event Action? DisplayChanged;
+
+    /// <summary>The coefficients-fractal pair selection changed (toggles/redraws the third panel).</summary>
+    public event Action? CoeffPairChanged;
 
     /// <summary>Expensive update: axis count or points per axis changed (rebuild seed buffer).</summary>
     public event Action? SeedsChanged;
@@ -71,9 +101,17 @@ public sealed class ParametersViewModel
         AxisCount.Changed += () => SeedsChanged?.Invoke();
         PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
 
+        // "none" + the 66 unordered coefficient pairs.
+        var pairs = new List<CoeffPair> { new() { Label = "none", I = -1, J = -1 } };
+        for (int i = 0; i < 12; i++)
+            for (int j = i + 1; j < 12; j++)
+                pairs.Add(new CoeffPair { Label = $"a{i + 1}-a{j + 1}", I = i, J = j });
+        CoeffPairs = pairs;
+        _selectedCoeffPair = pairs[0]; // none
+
         ToggleDisplayCommand = new RelayCommand(_ =>
         {
-            DisplayModeIndex ^= 1; // two modes for now: 0 <-> 1
+            DisplayModeIndex = (DisplayModeIndex + 1) % ActiveModeCount; // 2 or 3 modes
             DisplayChanged?.Invoke();
         });
     }
