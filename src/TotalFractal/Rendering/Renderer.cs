@@ -34,8 +34,8 @@ public sealed class Renderer : IDisposable
     private int _height = 1;
     private bool _initialized;
 
-    // Current map / view state. Hardcoded defaults for now; the WPF sliders will drive these
-    // later via SetMap(). Default is the Example map so a no-args run shows the transform.
+    // Current map state. Default is the complex squaring map z^2+c (QuadraticMap.Example), so the
+    // escape panel is a Julia set and the a1-a7 coefficients panel is the classic Mandelbrot set.
     private QuadraticMap _map = QuadraticMap.Example;
     private int _splatRadius = 1;
     private int _iterations = 1;

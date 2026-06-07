@@ -15,11 +15,16 @@ public struct QuadraticMap
     /// <summary>x' = x, y' = y. Plumbing sanity check: the grid stays a straight grid.</summary>
     public static QuadraticMap Identity => new() { A2 = 1f, A9 = 1f };
 
-    /// <summary>A gentle non-linear test map that visibly bends the grid without blowing up.</summary>
+    /// <summary>
+    /// The complex squaring map z' = z^2 + c (z = x + iy, c = a1 + i*a7):
+    ///   x' = x^2 - y^2 + a1,  y' = 2 x y + a7  -> a4 = 1, a6 = -1, a11 = 2, rest 0.
+    /// Default map: the escape panel renders the exact Julia set for c = (a1, a7), and selecting
+    /// the a1-a7 coefficient pair renders the exact classic Mandelbrot set (seed z0 = 0).
+    /// </summary>
     public static QuadraticMap Example => new()
     {
-        A1 = 0.0f, A2 = 0.9f, A3 = -0.4f, A4 = 0.3f, A5 = 0.2f, A6 = -0.3f,
-        A7 = 0.0f, A8 = 0.4f, A9 = 0.9f, A10 = -0.2f, A11 = 0.3f, A12 = 0.2f,
+        A1 = 0f, A2 = 0f, A3 = 0f, A4 = 1f, A5 = 0f, A6 = -1f,
+        A7 = 0f, A8 = 0f, A9 = 0f, A10 = 0f, A11 = 2f, A12 = 0f,
     };
 
     /// <summary>Pack into the three UBO vec4 slots: (a1..a4), (a5..a8), (a9..a12).</summary>
