@@ -19,8 +19,10 @@ namespace TotalFractal.Rendering;
 public sealed class Renderer : IDisposable
 {
     private ComputeProgram _solve = null!;
+    private ComputeProgram _escape = null!;
     private ShaderProgram _display = null!;
     private Texture _scatterTex = null!;
+    private Texture _fractalTex = null!;
     private Framebuffer _fbo = null!;
     private FullscreenQuad _quad = null!;
     private ShaderStorageBuffer _seeds = null!;
@@ -38,6 +40,9 @@ public sealed class Renderer : IDisposable
     private int _iterations = 1;
     private int _pointCount;
 
+    // Max iterations for the escape-time fractal panel. Hardcoded for now (future slider).
+    private const int MaxFractalIterations = 200;
+
     // Pending seed grid. Set on the UI thread (pure CPU); the actual GL upload is deferred to
     // RenderFrame (which runs with the context current), keeping all GL calls inside Paint.
     private (int lines, int samples, Vector2 min, Vector2 max) _seedParams = (20, 1000, new(-1f, -1f), new(1f, 1f));
@@ -52,12 +57,14 @@ public sealed class Renderer : IDisposable
             return;
 
         _solve = new ComputeProgram(EmbeddedShaderSource.Load("solve.comp"), "solve");
+        _escape = new ComputeProgram(EmbeddedShaderSource.Load("escape.comp"), "escape");
         _display = new ShaderProgram(
             EmbeddedShaderSource.Load("display.vert"),
             EmbeddedShaderSource.Load("display.frag"),
             "display");
 
         _scatterTex = new Texture(SizedInternalFormat.Rgba8);
+        _fractalTex = new Texture(SizedInternalFormat.Rgba8);
         _fbo = new Framebuffer(SizedInternalFormat.Rgba8);
         _quad = new FullscreenQuad();
 
@@ -100,6 +107,8 @@ public sealed class Renderer : IDisposable
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
         _scatterTex.Allocate(_width, _height);
+        // The fractal inset occupies the lower-left third; compute it at panel resolution.
+        _fractalTex.Allocate(Math.Max(1, _width / 3), Math.Max(1, _height / 3));
         _fbo.Resize(_width, _height);
     }
 
@@ -122,33 +131,48 @@ public sealed class Renderer : IDisposable
             CC = cC,
             View = _view,
             Dims = new Vector4i(_pointCount, _width, _height, _splatRadius),
-            Iter = new Vector4i(_iterations, 0, 0, 0),
+            Iter = new Vector4i(_iterations, MaxFractalIterations, 0, 0),
         };
         _config.Update(ref cfg);
+        _config.Bind(1);
 
-        // 2) Clear the scatter target to zero, then scatter the transformed points into it.
+        // 2) Grid scatter pass: clear the scatter target, then scatter the transformed points.
         GL.ClearTexImage(_scatterTex.Handle, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
-
         _solve.Use();
         _scatterTex.BindImage(0, TextureAccess.WriteOnly);
         _seeds.Bind(0);
-        _config.Bind(1);
         _solve.Dispatch((_pointCount + 255) / 256, 1, 1);
+
+        // 3) Escape-time fractal pass (filled Julia set), one invocation per panel pixel.
+        //    No clear needed - every pixel is written.
+        _escape.Use();
+        _fractalTex.BindImage(1, TextureAccess.WriteOnly);
+        _escape.Dispatch((_fractalTex.Width + 7) / 8, (_fractalTex.Height + 7) / 8, 1);
+
+        // One barrier covers both image writes before the display pass samples the textures.
         GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit |
                          MemoryBarrierFlags.TextureFetchBarrierBit);
 
-        // 3) Display pass - sample the scatter texture onto the offscreen FBO.
+        // 4) Display pass - composite the panels onto the offscreen FBO.
         _fbo.Bind();
-        GL.Viewport(0, 0, _width, _height);
         GL.ClearColor(0f, 0f, 0f, 1f);
+        GL.Viewport(0, 0, _width, _height);
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
-        _display.Use();
-        _scatterTex.Bind(0);
-        _display.SetInt("srcTex", 0);
-        _quad.Draw();
+        DrawPanel(_scatterTex, 0, 0, _width, _height);                 // grid, full window
+        DrawPanel(_fractalTex, 0, 0, _width / 3, _height / 3);         // fractal inset, lower-left (GL origin = bottom-left)
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+    }
+
+    /// <summary>Draw a texture into a sub-rectangle of the bound framebuffer (one display panel).</summary>
+    private void DrawPanel(Texture tex, int x, int y, int w, int h)
+    {
+        GL.Viewport(x, y, Math.Max(1, w), Math.Max(1, h));
+        _display.Use();
+        tex.Bind(0);
+        _display.SetInt("srcTex", 0);
+        _quad.Draw();
     }
 
     /// <summary>Copy the offscreen FBO to the default framebuffer (the window). Call before SwapBuffers.</summary>
@@ -185,7 +209,9 @@ public sealed class Renderer : IDisposable
         _quad?.Dispose();
         _fbo?.Dispose();
         _scatterTex?.Dispose();
+        _fractalTex?.Dispose();
         _display?.Dispose();
+        _escape?.Dispose();
         _solve?.Dispose();
     }
 }

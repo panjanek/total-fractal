@@ -1,0 +1,61 @@
+#version 430 core
+
+// "Initial-conditions" escape-time fractal (filled Julia set of the quadratic map).
+// One invocation per pixel of the fractal texture: the pixel is treated as a starting point
+// (x0, y0); the map (current coefficients) is iterated up to iter.y times. If the orbit
+// escapes a bailout radius it is "unbounded"; otherwise "bounded". Coloured with a continuous
+// black-at-zero escape-time palette: fast escapers / deep exterior -> black, the bounded set
+// (and its boundary) -> bright.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(rgba8, binding = 1) writeonly uniform image2D fractalDst;
+
+layout(std140, binding = 1) uniform Config {
+    vec4 cA;    // a1 a2 a3 a4
+    vec4 cB;    // a5 a6 a7 a8
+    vec4 cC;    // a9 a10 a11 a12
+    vec4 view;  // grid view (unused here)
+    ivec4 dims; // pointCount, texW, texH, splatRadius
+    ivec4 iter; // x = grid iterations (unused here), y = fractal max iterations
+};
+
+const float R2 = 1.0e6; // bailout radius^2 - generous; quadratic divergence is doubly-exponential
+
+vec3 toneMap(float t)
+{
+    // Cosine palette for hue, brightness ramped from black at t = 0.
+    vec3 hue = 0.5 + 0.5 * cos(6.28318 * (vec3(0.00, 0.33, 0.67) + t));
+    return hue * t; // t = 0 -> black; t = 1 (bounded) -> brightest
+}
+
+void main()
+{
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 sz = imageSize(fractalDst);
+    if (px.x >= sz.x || px.y >= sz.y)
+        return;
+
+    // Pixel -> world starting point. Aspect-correct around a base half-extent so the Julia
+    // set is not stretched when the panel is non-square.
+    float aspect = float(sz.x) / float(sz.y);
+    float ext = 2.0;
+    float x = mix(-ext * aspect, ext * aspect, (float(px.x) + 0.5) / float(sz.x));
+    float y = mix(-ext,          ext,          (float(px.y) + 0.5) / float(sz.y));
+
+    int maxIter = iter.y;
+    int n = 0;
+    for (; n < maxIter; ++n)
+    {
+        float nx = cA.x + cA.y * x + cA.z * y + cA.w * x * x + cB.x * x * y + cB.y * y * y;
+        float ny = cB.z + cB.w * x + cC.x * y + cC.y * x * x + cC.z * x * y + cC.w * y * y;
+        x = nx;
+        y = ny;
+
+        if (!(x * x + y * y < R2)) // escaped (also catches NaN / Inf)
+            break;
+    }
+
+    float t = float(n) / float(maxIter); // 0 = immediate escape (black), 1 = bounded (brightest)
+    imageStore(fractalDst, px, vec4(toneMap(t), 1.0));
+}
