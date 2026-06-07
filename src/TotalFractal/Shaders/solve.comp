@@ -1,10 +1,10 @@
 #version 430 core
 
 // Stage 1: visualize the general 2D quadratic map (Sprott form).
-// One invocation per seed point (1D dispatch). Each point is transformed once by the map,
-// projected from world space into the texture via the view rectangle, and scattered as a
-// small round white splat. Concurrent writes to the same texel are harmless here
-// (single colour, last-writer-wins).
+// One invocation per seed point (1D dispatch). Each point is iterated through the map
+// iter.x times, and only the final position is projected from world space into the texture
+// via the view rectangle and scattered as a small round white splat. Concurrent writes to
+// the same texel are harmless here (single colour, last-writer-wins).
 
 layout(local_size_x = 256) in;
 
@@ -20,6 +20,7 @@ layout(std140, binding = 1) uniform Config {
     vec4 cC;    // a9 a10 a11 a12
     vec4 view;  // xmin ymin xmax ymax
     ivec4 dims; // pointCount, texW, texH, splatRadius
+    ivec4 iter; // x = iterations; y,z,w reserved
 };
 
 void main()
@@ -31,17 +32,29 @@ void main()
     float x = seed[i].x;
     float y = seed[i].y;
 
-    // x' = a1 + a2 x + a3 y + a4 x^2 + a5 xy + a6 y^2
-    // y' = a7 + a8 x + a9 y + a10 x^2 + a11 xy + a12 y^2
-    float nx = cA.x + cA.y * x + cA.z * y + cA.w * x * x + cB.x * x * y + cB.y * y * y;
-    float ny = cB.z + cB.w * x + cC.x * y + cC.y * x * x + cC.z * x * y + cC.w * y * y;
+    // Apply the map iter.x times; both new values must come from the SAME (x, y), so use
+    // temporaries. Only the final position is drawn.
+    //   x' = a1 + a2 x + a3 y + a4 x^2 + a5 xy + a6 y^2
+    //   y' = a7 + a8 x + a9 y + a10 x^2 + a11 xy + a12 y^2
+    for (int n = 0; n < iter.x; ++n)
+    {
+        float nx = cA.x + cA.y * x + cA.z * y + cA.w * x * x + cB.x * x * y + cB.y * y * y;
+        float ny = cB.z + cB.w * x + cC.x * y + cC.y * x * x + cC.z * x * y + cC.w * y * y;
+        x = nx;
+        y = ny;
 
-    // Guard against quadratic blow-ups.
-    if (isinf(nx) || isnan(nx) || isinf(ny) || isnan(ny))
+        // Escape early-out: a diverging orbit lands off the finite view, so stop iterating
+        // (also catches NaN, which fails the comparison). Such points are simply not drawn.
+        if (!(x * x + y * y < 1.0e12))
+            return;
+    }
+
+    // Final guard against blow-ups.
+    if (isinf(x) || isnan(x) || isinf(y) || isnan(y))
         return;
 
     // World -> normalized -> pixel.
-    vec2 uv = (vec2(nx, ny) - view.xy) / (view.zw - view.xy);
+    vec2 uv = (vec2(x, y) - view.xy) / (view.zw - view.xy);
     ivec2 center = ivec2(uv * vec2(dims.y, dims.z));
 
     int r = dims.w;

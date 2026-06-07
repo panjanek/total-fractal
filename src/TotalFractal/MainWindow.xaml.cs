@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
+using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using TotalFractal.Rendering;
 using TotalFractal.ViewModels;
@@ -22,23 +23,41 @@ public partial class MainWindow : Window
     private GLControl? _glControl;
     private bool _ready;
 
+    // Source domain of the seed grid (world space); fixed - only the counts change.
+    private static readonly Vector2 SeedMin = new(-1f, -1f);
+    private static readonly Vector2 SeedMax = new(1f, 1f);
+
     public MainWindow(ParametersViewModel vm)
     {
         InitializeComponent();
         _vm = vm;
-        _vm.Changed += ApplyParamsToRenderer;
+        _vm.MapChanged += ApplyMap;       // coefficients / splat: cheap UBO-only update
+        _vm.SeedsChanged += ApplySeeds;   // axis count / points per axis: seed buffer rebuild
     }
 
     /// <summary>
-    /// Push the current view-model parameters into the renderer and request a repaint.
-    /// Runs on the UI thread; only mutates CPU state - the GL upload happens in Paint.
+    /// Push the coefficients + splat into the renderer and request a repaint. Runs on the UI
+    /// thread; only mutates CPU state - the GL upload happens in Paint.
     /// </summary>
-    private void ApplyParamsToRenderer()
+    private void ApplyMap()
     {
         if (!_ready)
             return; // GL not initialized yet; GlControl_Load performs the initial sync.
 
-        _renderer.SetMap(_vm.ToMap(), _vm.View, _vm.SplatRadius);
+        _renderer.SetMap(_vm.ToMap(), _vm.View, _vm.SplatRadius, _vm.IterationCount);
+        _glControl!.Invalidate();
+    }
+
+    /// <summary>
+    /// Request a seed-grid rebuild for the current axis count / points per axis, then repaint.
+    /// SetSeeds is pure-CPU (deferred upload), so this is safe from a UI event handler.
+    /// </summary>
+    private void ApplySeeds()
+    {
+        if (!_ready)
+            return;
+
+        _renderer.SetSeeds(_vm.LinesPerAxis, _vm.SamplesPerLine, SeedMin, SeedMax);
         _glControl!.Invalidate();
     }
 
@@ -69,7 +88,8 @@ public partial class MainWindow : Window
         _renderer.Initialize();
         _renderer.Resize(_glControl.Width, _glControl.Height);
         _ready = true;
-        ApplyParamsToRenderer(); // sync renderer to the view-model's initial values, then repaint
+        ApplySeeds(); // sync renderer to the view-model's initial values, then repaint
+        ApplyMap();
     }
 
     private void GlControl_Resize(object? sender, EventArgs e)

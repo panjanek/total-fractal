@@ -21,7 +21,8 @@ namespace TotalFractal;
 public partial class App : Application
 {
     private static readonly Vector4 DefaultView = new(-2.5f, -2.5f, 2.5f, 2.5f);
-    private const int DefaultSplatRadius = 1;
+    private static readonly Vector2 SeedMin = new(-1f, -1f);
+    private static readonly Vector2 SeedMax = new(1f, 1f);
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -29,8 +30,13 @@ public partial class App : Application
 
         if (TryGetScreenshotOptions(e.Args, out string path, out int width, out int height))
         {
-            QuadraticMap? coeffs = TryGetCoeffs(e.Args, out QuadraticMap m) ? m : null;
-            RunHeadlessScreenshot(path, width, height, coeffs);
+            // Resolve overrides against the GUI defaults so headless renders are deterministic.
+            QuadraticMap map = TryGetCoeffs(e.Args, out QuadraticMap m) ? m : QuadraticMap.Example;
+            int axis = TryGetIntFlag(e.Args, "--axis", out int a) ? a : 20;
+            int points = TryGetIntFlag(e.Args, "--points", out int p) ? p : 1000;
+            int splatSize = TryGetIntFlag(e.Args, "--splat", out int s) ? s : 2;
+            int iterations = TryGetIntFlag(e.Args, "--iterations", out int it) ? it : 1;
+            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations);
             Shutdown();
             return;
         }
@@ -49,14 +55,16 @@ public partial class App : Application
         config.Show();
     }
 
-    private static void RunHeadlessScreenshot(string path, int width, int height, QuadraticMap? coeffs)
+    private static void RunHeadlessScreenshot(
+        string path, int width, int height, QuadraticMap map,
+        int axisCount, int pointsPerAxis, int splatSize, int iterations)
     {
         using var context = new OffscreenContext(width, height);
         using var renderer = new Renderer();
         renderer.Initialize();
         renderer.Resize(width, height);
-        if (coeffs is QuadraticMap m)
-            renderer.SetMap(m, DefaultView, DefaultSplatRadius);
+        renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
+        renderer.SetMap(map, DefaultView, splatSize - 1, iterations); // splat size 1 = single pixel (radius 0)
         renderer.RenderFrame();
         ScreenshotWriter.Save(renderer.ReadPixels(), renderer.Width, renderer.Height, path);
     }
@@ -117,6 +125,16 @@ public partial class App : Application
             return true;
         }
 
+        return false;
+    }
+
+    /// <summary>Parse an "--name &lt;int&gt;" flag (e.g. --axis 50).</summary>
+    private static bool TryGetIntFlag(string[] args, string name, out int value)
+    {
+        value = 0;
+        for (int i = 0; i < args.Length - 1; i++)
+            if (args[i] == name && int.TryParse(args[i + 1], out value))
+                return true;
         return false;
     }
 }

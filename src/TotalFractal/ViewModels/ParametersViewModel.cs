@@ -6,17 +6,39 @@ namespace TotalFractal.ViewModels;
 
 /// <summary>
 /// Single source of truth for the shader parameters exposed in the config window. Knows
-/// nothing about OpenGL - the GL-aware <c>MainWindow</c> subscribes to <see cref="Changed"/>
-/// and pushes the values into the renderer. More parameter groups (view, splat, iterations)
-/// will be added here as their own properties later.
+/// nothing about OpenGL - the GL-aware <c>MainWindow</c> subscribes to the change events and
+/// pushes the values into the renderer.
+///
+/// Changes are split by cost: <see cref="MapChanged"/> (coefficients + splat) is a cheap
+/// UBO-only update, while <see cref="SeedsChanged"/> (axis count / points per axis) requires
+/// rebuilding the seed buffer - so a coefficient drag never triggers a buffer rebuild.
 /// </summary>
 public sealed class ParametersViewModel
 {
     /// <summary>The 12 quadratic-map coefficients a1..a12, each ranged [-2, 2].</summary>
     public ObservableCollection<SliderParam> Coefficients { get; }
 
-    /// <summary>Raised whenever any parameter changes.</summary>
-    public event Action? Changed;
+    /// <summary>Splat size: 1 = single pixel, 2, 3. Maps to shader radius = size - 1.</summary>
+    public ChoiceParam SplatSize { get; } =
+        new() { Label = "Splat size", Options = new[] { 1, 2, 3 }, Value = 2 };
+
+    /// <summary>Number of grid lines per axis.</summary>
+    public ChoiceParam AxisCount { get; } =
+        new() { Label = "Axis count", Options = new[] { 5, 10, 20, 30, 50, 100 }, Value = 20 };
+
+    /// <summary>Sample points along each grid line.</summary>
+    public ChoiceParam PointsPerAxis { get; } =
+        new() { Label = "Points per axis", Options = new[] { 100, 1000, 10000 }, Value = 1000 };
+
+    /// <summary>How many times the map is applied to each seed before its final point is drawn.</summary>
+    public SliderParam Iterations { get; } =
+        new() { Label = "Iterations", Min = 1, Max = 100, Value = 1 };
+
+    /// <summary>Cheap update: coefficients or splat changed (UBO only, no buffer rebuild).</summary>
+    public event Action? MapChanged;
+
+    /// <summary>Expensive update: axis count or points per axis changed (rebuild seed buffer).</summary>
+    public event Action? SeedsChanged;
 
     public ParametersViewModel()
     {
@@ -31,9 +53,14 @@ public sealed class ParametersViewModel
         for (int i = 0; i < 12; i++)
         {
             var p = new SliderParam { Label = $"a{i + 1}", Value = init[i] };
-            p.Changed += () => Changed?.Invoke();
+            p.Changed += () => MapChanged?.Invoke();
             Coefficients.Add(p);
         }
+
+        SplatSize.Changed += () => MapChanged?.Invoke();
+        Iterations.Changed += () => MapChanged?.Invoke();
+        AxisCount.Changed += () => SeedsChanged?.Invoke();
+        PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
     }
 
     /// <summary>Pack the 12 slider values (cast to float) into a <see cref="QuadraticMap"/>.</summary>
@@ -52,6 +79,15 @@ public sealed class ParametersViewModel
     /// <summary>World-space view rectangle (xmin, ymin, xmax, ymax). Fixed for now.</summary>
     public Vector4 View => new(-2.5f, -2.5f, 2.5f, 2.5f);
 
-    /// <summary>Splat radius in pixels. Fixed for now.</summary>
-    public int SplatRadius => 1;
+    /// <summary>Shader splat radius (0 = single pixel), derived from the splat size dropdown.</summary>
+    public int SplatRadius => SplatSize.Value - 1;
+
+    /// <summary>Grid lines per axis (drives the seed buffer).</summary>
+    public int LinesPerAxis => AxisCount.Value;
+
+    /// <summary>Sample points per grid line (drives the seed buffer).</summary>
+    public int SamplesPerLine => PointsPerAxis.Value;
+
+    /// <summary>Iteration count (integer; the slider snaps to whole numbers).</summary>
+    public int IterationCount => (int)Math.Round(Iterations.Value);
 }
