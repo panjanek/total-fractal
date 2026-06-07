@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Forms.Integration;
+using System.Windows.Media;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.Common;
 using TotalFractal.Rendering;
@@ -26,6 +27,10 @@ public partial class MainWindow : Window
     // Mouse-drag (pan) state.
     private bool _panning;
     private Vector2 _grabWorld;
+
+    // Wheel-zoom easing state (CompositionTarget.Rendering tick).
+    private bool _viewAnimating;
+    private TimeSpan _lastRenderTime;
 
     // Source domain of the seed grid (world space); fixed - only the counts change.
     private static readonly Vector2 SeedMin = new(-1f, -1f);
@@ -152,8 +157,47 @@ public partial class MainWindow : Window
             return;
 
         float factor = MathF.Pow(1.15f, e.Delta / 120f); // wheel up -> zoom in
-        _renderer.ZoomAt(e.X, e.Y, _glControl!.Width, _glControl.Height, factor);
-        _glControl.Invalidate();
+        _renderer.ZoomAt(e.X, e.Y, _glControl!.Width, _glControl.Height, factor); // updates the target
+        StartViewAnimation();
+    }
+
+    // --- Zoom easing: a UI-thread per-frame tick eases the current view toward the target until
+    //     it settles, then unsubscribes (zero idle cost). All CPU here; rendering stays in Paint. ---
+
+    private void StartViewAnimation()
+    {
+        if (_viewAnimating)
+            return;
+        _viewAnimating = true;
+        _lastRenderTime = TimeSpan.MinValue; // first tick seeds the timestamp (dt = 0)
+        CompositionTarget.Rendering += OnViewTick;
+    }
+
+    private void StopViewAnimation()
+    {
+        if (!_viewAnimating)
+            return;
+        CompositionTarget.Rendering -= OnViewTick;
+        _viewAnimating = false;
+    }
+
+    private void OnViewTick(object? sender, EventArgs e)
+    {
+        if (!_ready)
+        {
+            StopViewAnimation();
+            return;
+        }
+
+        TimeSpan now = ((RenderingEventArgs)e).RenderingTime;
+        double dt = _lastRenderTime == TimeSpan.MinValue ? 0.0 : (now - _lastRenderTime).TotalSeconds;
+        _lastRenderTime = now;
+        dt = Math.Clamp(dt, 0.0, 0.1); // guard against stalls / first frame
+
+        bool animating = _renderer.AdvanceView(dt);
+        _glControl!.Invalidate();
+        if (!animating)
+            StopViewAnimation();
     }
 
     private void GlControl_Load(object? sender, EventArgs e)

@@ -49,6 +49,13 @@ public sealed class Renderer : IDisposable
     private const float MinHalfHeight = 1e-4f;
     private const float MaxHalfHeight = 1e4f;
 
+    // Animation target the current view eases toward (wheel zoom). Pan/SetView write both so they
+    // stay instant. AdvanceView() steps current -> target with log-space exponential smoothing.
+    private Vector2 _targetCenter = new(0f, 0f);
+    private float _targetHalfHeight = 2.5f;
+    private const float ViewStiffness = 14f;  // larger = snappier (settles in ~200 ms)
+    private const float ViewSettleEps = 1e-3f;
+
     // Escape-time iteration cap for the fractal panels (driven by the "Max iterations" dropdown).
     private int _maxIterations = 200;
 
@@ -134,36 +141,69 @@ public sealed class Renderer : IDisposable
         _maxIterations = Math.Max(1, maxIterations);
     }
 
-    /// <summary>Set the shared view directly (world center + half-height). Pure CPU.</summary>
+    /// <summary>Set the shared view directly (world center + half-height). Instant (no animation).</summary>
     public void SetView(Vector2 center, float halfHeight)
     {
-        _viewCenter = center;
-        _viewHalfHeight = Math.Clamp(halfHeight, MinHalfHeight, MaxHalfHeight);
+        float h = Math.Clamp(halfHeight, MinHalfHeight, MaxHalfHeight);
+        _viewCenter = _targetCenter = center;
+        _viewHalfHeight = _targetHalfHeight = h;
     }
 
     /// <summary>Map a client pixel (top-left origin) to a world point under the current view.</summary>
     public Vector2 ScreenToWorld(double px, double py, int w, int h)
-        => _viewCenter + OffsetFromCenter(px, py, w, h);
+        => _viewCenter + OffsetFromCenter(px, py, w, h, _viewHalfHeight);
 
-    /// <summary>Pan so the given world point stays under the cursor pixel (drag gesture).</summary>
+    /// <summary>Pan so the given world point stays under the cursor pixel (drag gesture). Instant.</summary>
     public void PanToKeepWorldAtPixel(Vector2 grabWorld, double px, double py, int w, int h)
-        => _viewCenter = grabWorld - OffsetFromCenter(px, py, w, h);
-
-    /// <summary>Zoom about the cursor: factor &gt; 1 zooms in (smaller plane section).</summary>
-    public void ZoomAt(double px, double py, int w, int h, float factor)
     {
-        Vector2 wc = ScreenToWorld(px, py, w, h);
-        _viewHalfHeight = Math.Clamp(_viewHalfHeight / factor, MinHalfHeight, MaxHalfHeight);
-        _viewCenter = wc - OffsetFromCenter(px, py, w, h); // keep the cursor's world point fixed
+        _viewCenter = grabWorld - OffsetFromCenter(px, py, w, h, _viewHalfHeight);
+        _targetCenter = _viewCenter;           // cancel any in-flight zoom ease
+        _targetHalfHeight = _viewHalfHeight;
     }
 
-    // World offset from the view center for a client pixel. Y is flipped (py=0 top -> +halfHeight).
-    private Vector2 OffsetFromCenter(double px, double py, int w, int h)
+    /// <summary>
+    /// Zoom about the cursor: factor &gt; 1 zooms in. Updates only the animation TARGET; the
+    /// current view eases toward it in <see cref="AdvanceView"/>.
+    /// </summary>
+    public void ZoomAt(double px, double py, int w, int h, float factor)
     {
-        float halfW = _viewHalfHeight * ((float)w / h);
+        Vector2 wc = ScreenToWorld(px, py, w, h); // world point under the cursor (current view)
+        _targetHalfHeight = Math.Clamp(_targetHalfHeight / factor, MinHalfHeight, MaxHalfHeight);
+        _targetCenter = wc - OffsetFromCenter(px, py, w, h, _targetHalfHeight); // home target on cursor
+    }
+
+    /// <summary>
+    /// Ease the current view toward the target by one frame (dt seconds). Half-height is eased in
+    /// log space for a visually constant-rate zoom. Returns true while still animating.
+    /// </summary>
+    public bool AdvanceView(double dt)
+    {
+        float logCur = MathF.Log(_viewHalfHeight);
+        float logTgt = MathF.Log(_targetHalfHeight);
+        bool settled = MathF.Abs(logCur - logTgt) < ViewSettleEps &&
+                       (_targetCenter - _viewCenter).LengthSquared <
+                           (ViewSettleEps * _viewHalfHeight) * (ViewSettleEps * _viewHalfHeight);
+        if (settled)
+        {
+            _viewCenter = _targetCenter;
+            _viewHalfHeight = _targetHalfHeight;
+            return false;
+        }
+
+        float t = 1f - MathF.Exp(-ViewStiffness * (float)dt);
+        _viewHalfHeight = MathF.Exp(logCur + (logTgt - logCur) * t);
+        _viewCenter = Vector2.Lerp(_viewCenter, _targetCenter, t);
+        return true;
+    }
+
+    // World offset from the view center for a client pixel, at a given half-height. Y is flipped
+    // (py=0 top -> +halfHeight).
+    private Vector2 OffsetFromCenter(double px, double py, int w, int h, float halfHeight)
+    {
+        float halfW = halfHeight * ((float)w / h);
         float fx = (float)(2.0 * px / w - 1.0);
         float fy = (float)(1.0 - 2.0 * py / h);
-        return new Vector2(fx * halfW, fy * _viewHalfHeight);
+        return new Vector2(fx * halfW, fy * halfHeight);
     }
 
     public void Resize(int width, int height)
