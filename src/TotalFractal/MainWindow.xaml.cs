@@ -23,6 +23,10 @@ public partial class MainWindow : Window
     private GLControl? _glControl;
     private bool _ready;
 
+    // Mouse-drag (pan) state.
+    private bool _panning;
+    private Vector2 _grabWorld;
+
     // Source domain of the seed grid (world space); fixed - only the counts change.
     private static readonly Vector2 SeedMin = new(-1f, -1f);
     private static readonly Vector2 SeedMax = new(1f, 1f);
@@ -33,6 +37,17 @@ public partial class MainWindow : Window
         _vm = vm;
         _vm.MapChanged += ApplyMap;       // coefficients / splat: cheap UBO-only update
         _vm.SeedsChanged += ApplySeeds;   // axis count / points per axis: seed buffer rebuild
+        _vm.DisplayChanged += ApplyDisplay; // which panel is maximized: display-only
+    }
+
+    /// <summary>Push the selected display mode (which panel is maximized) and repaint.</summary>
+    private void ApplyDisplay()
+    {
+        if (!_ready)
+            return;
+
+        _renderer.SetDisplayMode(_vm.DisplayModeIndex);
+        _glControl!.Invalidate();
     }
 
     /// <summary>
@@ -44,7 +59,7 @@ public partial class MainWindow : Window
         if (!_ready)
             return; // GL not initialized yet; GlControl_Load performs the initial sync.
 
-        _renderer.SetMap(_vm.ToMap(), _vm.View, _vm.SplatRadius, _vm.IterationCount);
+        _renderer.SetMap(_vm.ToMap(), _vm.SplatRadius, _vm.IterationCount);
         _glControl!.Invalidate();
     }
 
@@ -78,8 +93,55 @@ public partial class MainWindow : Window
         _glControl.Load += GlControl_Load;
         _glControl.Resize += GlControl_Resize;
         _glControl.Paint += GlControl_Paint;
+        _glControl.MouseDown += GlControl_MouseDown;
+        _glControl.MouseMove += GlControl_MouseMove;
+        _glControl.MouseUp += GlControl_MouseUp;
+        _glControl.MouseWheel += GlControl_MouseWheel;
+        _glControl.MouseEnter += (_, _) => _glControl!.Focus(); // WinForms wheel needs focus
 
         placeholder.Children.Add(new WindowsFormsHost { Child = _glControl });
+    }
+
+    // --- Mouse navigation: pan (left-drag) and zoom (wheel). These only mutate the renderer's
+    //     view state (pure CPU); the UBO upload happens in Paint. ---
+
+    private void GlControl_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (!_ready || e.Button != MouseButtons.Left)
+            return;
+
+        _panning = true;
+        _glControl!.Capture = true;
+        _grabWorld = _renderer.ScreenToWorld(e.X, e.Y, _glControl.Width, _glControl.Height);
+    }
+
+    private void GlControl_MouseMove(object? sender, MouseEventArgs e)
+    {
+        if (!_ready || !_panning)
+            return;
+
+        _renderer.PanToKeepWorldAtPixel(_grabWorld, e.X, e.Y, _glControl!.Width, _glControl.Height);
+        _glControl.Invalidate();
+    }
+
+    private void GlControl_MouseUp(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Left)
+            return;
+
+        _panning = false;
+        if (_glControl != null)
+            _glControl.Capture = false;
+    }
+
+    private void GlControl_MouseWheel(object? sender, MouseEventArgs e)
+    {
+        if (!_ready)
+            return;
+
+        float factor = MathF.Pow(1.15f, e.Delta / 120f); // wheel up -> zoom in
+        _renderer.ZoomAt(e.X, e.Y, _glControl!.Width, _glControl.Height, factor);
+        _glControl.Invalidate();
     }
 
     private void GlControl_Load(object? sender, EventArgs e)
@@ -90,6 +152,7 @@ public partial class MainWindow : Window
         _ready = true;
         ApplySeeds(); // sync renderer to the view-model's initial values, then repaint
         ApplyMap();
+        ApplyDisplay();
     }
 
     private void GlControl_Resize(object? sender, EventArgs e)

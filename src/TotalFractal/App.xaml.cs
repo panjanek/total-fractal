@@ -20,9 +20,10 @@ namespace TotalFractal;
 /// </summary>
 public partial class App : Application
 {
-    private static readonly Vector4 DefaultView = new(-2.5f, -2.5f, 2.5f, 2.5f);
     private static readonly Vector2 SeedMin = new(-1f, -1f);
     private static readonly Vector2 SeedMax = new(1f, 1f);
+    private static readonly Vector2 DefaultViewCenter = new(0f, 0f);
+    private const float DefaultViewHalfHeight = 2.5f;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -36,7 +37,15 @@ public partial class App : Application
             int points = TryGetIntFlag(e.Args, "--points", out int p) ? p : 1000;
             int splatSize = TryGetIntFlag(e.Args, "--splat", out int s) ? s : 2;
             int iterations = TryGetIntFlag(e.Args, "--iterations", out int it) ? it : 1;
-            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations);
+            int display = TryGetIntFlag(e.Args, "--display", out int d) ? d : 0;
+            Vector2 viewCenter = DefaultViewCenter;
+            float viewHalfHeight = DefaultViewHalfHeight;
+            if (TryGetView(e.Args, out Vector2 vc, out float vh))
+            {
+                viewCenter = vc;
+                viewHalfHeight = vh;
+            }
+            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, display, viewCenter, viewHalfHeight);
             Shutdown();
             return;
         }
@@ -57,14 +66,17 @@ public partial class App : Application
 
     private static void RunHeadlessScreenshot(
         string path, int width, int height, QuadraticMap map,
-        int axisCount, int pointsPerAxis, int splatSize, int iterations)
+        int axisCount, int pointsPerAxis, int splatSize, int iterations, int displayMode,
+        Vector2 viewCenter, float viewHalfHeight)
     {
         using var context = new OffscreenContext(width, height);
         using var renderer = new Renderer();
         renderer.Initialize();
         renderer.Resize(width, height);
         renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
-        renderer.SetMap(map, DefaultView, splatSize - 1, iterations); // splat size 1 = single pixel (radius 0)
+        renderer.SetMap(map, splatSize - 1, iterations); // splat size 1 = single pixel (radius 0)
+        renderer.SetDisplayMode(displayMode);
+        renderer.SetView(viewCenter, viewHalfHeight);
         renderer.RenderFrame();
         ScreenshotWriter.Save(renderer.ReadPixels(), renderer.Width, renderer.Height, path);
     }
@@ -125,6 +137,33 @@ public partial class App : Application
             return true;
         }
 
+        return false;
+    }
+
+    /// <summary>Parse "--view cx,cy,h" (three invariant-culture floats: center + half-height).</summary>
+    private static bool TryGetView(string[] args, out Vector2 center, out float halfHeight)
+    {
+        center = default;
+        halfHeight = 0f;
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] != "--view")
+                continue;
+
+            string[] parts = args[i + 1].Split(',');
+            if (parts.Length != 3)
+                return false;
+
+            if (float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float cx) &&
+                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float cy) &&
+                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float h))
+            {
+                center = new Vector2(cx, cy);
+                halfHeight = h;
+                return true;
+            }
+            return false;
+        }
         return false;
     }
 

@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using OpenTK.Mathematics;
+using System.Windows.Input;
 using TotalFractal.Model;
 
 namespace TotalFractal.ViewModels;
@@ -34,8 +34,17 @@ public sealed class ParametersViewModel
     public SliderParam Iterations { get; } =
         new() { Label = "Iterations", Min = 1, Max = 100, Value = 1 };
 
+    /// <summary>Which panel is maximized: 0 = grid, 1 = escape fractal. Toggled by the button.</summary>
+    public int DisplayModeIndex { get; private set; }
+
+    /// <summary>Toggles <see cref="DisplayModeIndex"/> between the two display modes.</summary>
+    public ICommand ToggleDisplayCommand { get; }
+
     /// <summary>Cheap update: coefficients or splat changed (UBO only, no buffer rebuild).</summary>
     public event Action? MapChanged;
+
+    /// <summary>Display-only update: which panel is maximized changed (no recompute).</summary>
+    public event Action? DisplayChanged;
 
     /// <summary>Expensive update: axis count or points per axis changed (rebuild seed buffer).</summary>
     public event Action? SeedsChanged;
@@ -61,6 +70,12 @@ public sealed class ParametersViewModel
         Iterations.Changed += () => MapChanged?.Invoke();
         AxisCount.Changed += () => SeedsChanged?.Invoke();
         PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
+
+        ToggleDisplayCommand = new RelayCommand(_ =>
+        {
+            DisplayModeIndex ^= 1; // two modes for now: 0 <-> 1
+            DisplayChanged?.Invoke();
+        });
     }
 
     /// <summary>Pack the 12 slider values (cast to float) into a <see cref="QuadraticMap"/>.</summary>
@@ -75,9 +90,6 @@ public sealed class ParametersViewModel
             A10 = (float)c[9].Value, A11 = (float)c[10].Value, A12 = (float)c[11].Value,
         };
     }
-
-    /// <summary>World-space view rectangle (xmin, ymin, xmax, ymax). Fixed for now.</summary>
-    public Vector4 View => new(-2.5f, -2.5f, 2.5f, 2.5f);
 
     /// <summary>Shader splat radius (0 = single pixel), derived from the splat size dropdown.</summary>
     public int SplatRadius => SplatSize.Value - 1;

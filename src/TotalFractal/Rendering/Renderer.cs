@@ -35,13 +35,23 @@ public sealed class Renderer : IDisposable
     // Current map / view state. Hardcoded defaults for now; the WPF sliders will drive these
     // later via SetMap(). Default is the Example map so a no-args run shows the transform.
     private QuadraticMap _map = QuadraticMap.Example;
-    private Vector4 _view = new(-2.5f, -2.5f, 2.5f, 2.5f);
     private int _splatRadius = 1;
     private int _iterations = 1;
     private int _pointCount;
 
+    // Shared world-space view, navigated by the mouse and applied to BOTH passes. Stored as
+    // center + half-height; the rectangle is derived per-frame with the panel aspect so pixels
+    // stay square. Zooming shrinks the half-height (smaller plane section at constant resolution).
+    private Vector2 _viewCenter = new(0f, 0f);
+    private float _viewHalfHeight = 2.5f;
+    private const float MinHalfHeight = 1e-4f;
+    private const float MaxHalfHeight = 1e4f;
+
     // Max iterations for the escape-time fractal panel. Hardcoded for now (future slider).
     private const int MaxFractalIterations = 200;
+
+    // Which panel is maximized: 0 = grid, 1 = escape fractal. The other becomes the lower-left inset.
+    private int _displayMode;
 
     // Pending seed grid. Set on the UI thread (pure CPU); the actual GL upload is deferred to
     // RenderFrame (which runs with the context current), keeping all GL calls inside Paint.
@@ -93,13 +103,47 @@ public sealed class Renderer : IDisposable
         _pointCount = points.Length;
     }
 
-    /// <summary>Set the map coefficients, view rectangle, splat radius, and iteration count.</summary>
-    public void SetMap(QuadraticMap map, Vector4 view, int splatRadius, int iterations)
+    /// <summary>Select which panel is maximized: 0 = grid, 1 = escape fractal.</summary>
+    public void SetDisplayMode(int mode) => _displayMode = mode;
+
+    /// <summary>Set the map coefficients, splat radius, and iteration count.</summary>
+    public void SetMap(QuadraticMap map, int splatRadius, int iterations)
     {
         _map = map;
-        _view = view;
         _splatRadius = Math.Max(0, splatRadius);
         _iterations = Math.Max(1, iterations);
+    }
+
+    /// <summary>Set the shared view directly (world center + half-height). Pure CPU.</summary>
+    public void SetView(Vector2 center, float halfHeight)
+    {
+        _viewCenter = center;
+        _viewHalfHeight = Math.Clamp(halfHeight, MinHalfHeight, MaxHalfHeight);
+    }
+
+    /// <summary>Map a client pixel (top-left origin) to a world point under the current view.</summary>
+    public Vector2 ScreenToWorld(double px, double py, int w, int h)
+        => _viewCenter + OffsetFromCenter(px, py, w, h);
+
+    /// <summary>Pan so the given world point stays under the cursor pixel (drag gesture).</summary>
+    public void PanToKeepWorldAtPixel(Vector2 grabWorld, double px, double py, int w, int h)
+        => _viewCenter = grabWorld - OffsetFromCenter(px, py, w, h);
+
+    /// <summary>Zoom about the cursor: factor &gt; 1 zooms in (smaller plane section).</summary>
+    public void ZoomAt(double px, double py, int w, int h, float factor)
+    {
+        Vector2 wc = ScreenToWorld(px, py, w, h);
+        _viewHalfHeight = Math.Clamp(_viewHalfHeight / factor, MinHalfHeight, MaxHalfHeight);
+        _viewCenter = wc - OffsetFromCenter(px, py, w, h); // keep the cursor's world point fixed
+    }
+
+    // World offset from the view center for a client pixel. Y is flipped (py=0 top -> +halfHeight).
+    private Vector2 OffsetFromCenter(double px, double py, int w, int h)
+    {
+        float halfW = _viewHalfHeight * ((float)w / h);
+        float fx = (float)(2.0 * px / w - 1.0);
+        float fy = (float)(1.0 - 2.0 * py / h);
+        return new Vector2(fx * halfW, fy * _viewHalfHeight);
     }
 
     public void Resize(int width, int height)
@@ -107,8 +151,9 @@ public sealed class Renderer : IDisposable
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
         _scatterTex.Allocate(_width, _height);
-        // The fractal inset occupies the lower-left third; compute it at panel resolution.
-        _fractalTex.Allocate(Math.Max(1, _width / 3), Math.Max(1, _height / 3));
+        // Both textures are full-resolution; either can be maximized or shown as the inset
+        // (the inset viewport downscales via the sampler), so the toggle needs no reallocation.
+        _fractalTex.Allocate(_width, _height);
         _fbo.Resize(_width, _height);
     }
 
@@ -122,14 +167,20 @@ public sealed class Renderer : IDisposable
             _seedsDirty = false;
         }
 
-        // 1) Push current state into the config UBO.
+        // 1) Push current state into the config UBO. The shared view rectangle is derived from
+        //    center + half-height + panel aspect so pixels stay square; both passes read it.
+        float halfW = _viewHalfHeight * ((float)_width / _height);
+        var viewRect = new Vector4(
+            _viewCenter.X - halfW, _viewCenter.Y - _viewHalfHeight,
+            _viewCenter.X + halfW, _viewCenter.Y + _viewHalfHeight);
+
         var (cA, cB, cC) = _map.ToVec4();
         var cfg = new SolveConfig
         {
             CA = cA,
             CB = cB,
             CC = cC,
-            View = _view,
+            View = viewRect,
             Dims = new Vector4i(_pointCount, _width, _height, _splatRadius),
             Iter = new Vector4i(_iterations, MaxFractalIterations, 0, 0),
         };
@@ -159,8 +210,11 @@ public sealed class Renderer : IDisposable
         GL.Viewport(0, 0, _width, _height);
         GL.Clear(ClearBufferMask.ColorBufferBit);
 
-        DrawPanel(_scatterTex, 0, 0, _width, _height);                 // grid, full window
-        DrawPanel(_fractalTex, 0, 0, _width / 3, _height / 3);         // fractal inset, lower-left (GL origin = bottom-left)
+        // Pick which texture is maximized vs. the lower-left inset (GL origin = bottom-left).
+        Texture maxTex = _displayMode == 1 ? _fractalTex : _scatterTex;
+        Texture insetTex = _displayMode == 1 ? _scatterTex : _fractalTex;
+        DrawPanel(maxTex, 0, 0, _width, _height);                      // maximized, full window
+        DrawPanel(insetTex, 0, 0, _width / 3, _height / 3);            // inset, lower-left third
 
         GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
     }

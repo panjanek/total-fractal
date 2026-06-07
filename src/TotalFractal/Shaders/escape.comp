@@ -3,9 +3,9 @@
 // "Initial-conditions" escape-time fractal (filled Julia set of the quadratic map).
 // One invocation per pixel of the fractal texture: the pixel is treated as a starting point
 // (x0, y0); the map (current coefficients) is iterated up to iter.y times. If the orbit
-// escapes a bailout radius it is "unbounded"; otherwise "bounded". Coloured with a continuous
-// black-at-zero escape-time palette: fast escapers / deep exterior -> black, the bounded set
-// (and its boundary) -> bright.
+// escapes a bailout radius it is "unbounded"; otherwise "bounded". Classic Mandelbrot
+// convention: bounded points are black; escaping points are coloured by how many iterations
+// they took to escape.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -15,18 +15,18 @@ layout(std140, binding = 1) uniform Config {
     vec4 cA;    // a1 a2 a3 a4
     vec4 cB;    // a5 a6 a7 a8
     vec4 cC;    // a9 a10 a11 a12
-    vec4 view;  // grid view (unused here)
+    vec4 view;  // shared world rectangle: xmin ymin xmax ymax
     ivec4 dims; // pointCount, texW, texH, splatRadius
     ivec4 iter; // x = grid iterations (unused here), y = fractal max iterations
 };
 
 const float R2 = 1.0e6; // bailout radius^2 - generous; quadratic divergence is doubly-exponential
 
-vec3 toneMap(float t)
+vec3 palette(float t)
 {
-    // Cosine palette for hue, brightness ramped from black at t = 0.
-    vec3 hue = 0.5 + 0.5 * cos(6.28318 * (vec3(0.00, 0.33, 0.67) + t));
-    return hue * t; // t = 0 -> black; t = 1 (bounded) -> brightest
+    // Full-brightness cosine palette (no black ramp - the bounded set is coloured black
+    // by an explicit branch, escapers are always visibly coloured).
+    return 0.5 + 0.5 * cos(6.28318 * (vec3(0.00, 0.33, 0.67) + t));
 }
 
 void main()
@@ -36,12 +36,10 @@ void main()
     if (px.x >= sz.x || px.y >= sz.y)
         return;
 
-    // Pixel -> world starting point. Aspect-correct around a base half-extent so the Julia
-    // set is not stretched when the panel is non-square.
-    float aspect = float(sz.x) / float(sz.y);
-    float ext = 2.0;
-    float x = mix(-ext * aspect, ext * aspect, (float(px.x) + 0.5) / float(sz.x));
-    float y = mix(-ext,          ext,          (float(px.y) + 0.5) / float(sz.y));
+    // Pixel -> world starting point using the shared view rectangle (already aspect-correct,
+    // navigated by pan/zoom). The same rectangle drives the grid pass, so both stay in sync.
+    float x = mix(view.x, view.z, (float(px.x) + 0.5) / float(sz.x));
+    float y = mix(view.y, view.w, (float(px.y) + 0.5) / float(sz.y));
 
     int maxIter = iter.y;
     int n = 0;
@@ -56,6 +54,14 @@ void main()
             break;
     }
 
-    float t = float(n) / float(maxIter); // 0 = immediate escape (black), 1 = bounded (brightest)
-    imageStore(fractalDst, px, vec4(toneMap(t), 1.0));
+    // Classic Mandelbrot: bounded (n reached maxIter) -> black; escaping -> colour by escape
+    // count. Index by n with a small frequency: quadratic divergence is fast, so escape counts
+    // are small and n/maxIter would squash all exterior colour into one band.
+    vec3 color;
+    if (n >= maxIter)
+        color = vec3(0.0);
+    else
+        color = palette(float(n) * 0.04);
+
+    imageStore(fractalDst, px, vec4(color, 1.0));
 }

@@ -30,8 +30,10 @@ public sealed class Texture : IDisposable
 
         GL.BindTexture(TextureTarget.Texture2D, Handle);
         GL.TexStorage2D(TextureTarget2d.Texture2D, 1, Format, width, height);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
-        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+        // Linear so a texture shown in a downscaled inset panel reads cleanly; at a 1:1
+        // maximized panel Linear sampled at texel centers is equivalent to Nearest.
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
+        GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
         GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
         GL.BindTexture(TextureTarget.Texture2D, 0);
