@@ -37,7 +37,18 @@
                                 Value="{Binding Iterations.Value, Mode=TwoWay}"
                                 IsSnapToTickEnabled="True" TickFrequency="1" VerticalAlignment="Center" />
                     </DockPanel>
-                    <DockPanel Margin="2,6,2,3">
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Escape-time fractal panels (escape + coefficients). -->
+            <GroupBox Header="Fractal" Margin="2,2,2,6" Padding="4">
+                <StackPanel>
+                    <DockPanel Margin="2,3">
+                        <TextBlock Width="110" Text="{Binding MaxIterations.Label}" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding MaxIterations.Options}"
+                                  SelectedItem="{Binding MaxIterations.Value, Mode=TwoWay}" />
+                    </DockPanel>
+                    <DockPanel Margin="2,3">
                         <TextBlock Width="110" Text="Coeff pair" VerticalAlignment="Center" />
                         <ComboBox ItemsSource="{Binding CoeffPairs}" DisplayMemberPath="Label"
                                   SelectedItem="{Binding SelectedCoeffPair, Mode=TwoWay}" />

@@ -37,6 +37,7 @@ public partial class App : Application
             int points = TryGetIntFlag(e.Args, "--points", out int p) ? p : 1000;
             int splatSize = TryGetIntFlag(e.Args, "--splat", out int s) ? s : 2;
             int iterations = TryGetIntFlag(e.Args, "--iterations", out int it) ? it : 1;
+            int maxIter = TryGetIntFlag(e.Args, "--maxiter", out int mi) ? mi : 200;
             int display = TryGetIntFlag(e.Args, "--display", out int d) ? d : 0;
             Vector2 viewCenter = DefaultViewCenter;
             float viewHalfHeight = DefaultViewHalfHeight;
@@ -52,7 +53,7 @@ public partial class App : Application
                 coeffI = ci;
                 coeffJ = cj;
             }
-            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, display,
+            RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, maxIter, display,
                 viewCenter, viewHalfHeight, coeffI, coeffJ);
             Shutdown();
             return;
@@ -74,7 +75,7 @@ public partial class App : Application
 
     private static void RunHeadlessScreenshot(
         string path, int width, int height, QuadraticMap map,
-        int axisCount, int pointsPerAxis, int splatSize, int iterations, int displayMode,
+        int axisCount, int pointsPerAxis, int splatSize, int iterations, int maxIterations, int displayMode,
         Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ)
     {
         using var context = new OffscreenContext(width, height);
@@ -82,7 +83,7 @@ public partial class App : Application
         renderer.Initialize();
         renderer.Resize(width, height);
         renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
-        renderer.SetMap(map, splatSize - 1, iterations); // splat size 1 = single pixel (radius 0)
+        renderer.SetMap(map, splatSize - 1, iterations, maxIterations); // splat size 1 = single pixel (radius 0)
         renderer.SetCoeffPair(coeffI, coeffJ);
         renderer.SetView(viewCenter, viewHalfHeight);
         renderer.SetDisplayMode(displayMode); // clamped against the active panel count

@@ -49,8 +49,8 @@ public sealed class Renderer : IDisposable
     private const float MinHalfHeight = 1e-4f;
     private const float MaxHalfHeight = 1e4f;
 
-    // Max iterations for the escape-time fractal panel. Hardcoded for now (future slider).
-    private const int MaxFractalIterations = 200;
+    // Escape-time iteration cap for the fractal panels (driven by the "Max iterations" dropdown).
+    private int _maxIterations = 200;
 
     // Which panel is maximized (index into the active texture list). The others become insets.
     private int _displayMode;
@@ -125,12 +125,13 @@ public sealed class Renderer : IDisposable
     // grid + escape are always active; the coefficients fractal adds a third when a pair is set.
     private int ActivePanelCount => _coeffI >= 0 ? 3 : 2;
 
-    /// <summary>Set the map coefficients, splat radius, and iteration count.</summary>
-    public void SetMap(QuadraticMap map, int splatRadius, int iterations)
+    /// <summary>Set the map coefficients, splat radius, grid iterations, and fractal max iterations.</summary>
+    public void SetMap(QuadraticMap map, int splatRadius, int iterations, int maxIterations)
     {
         _map = map;
         _splatRadius = Math.Max(0, splatRadius);
         _iterations = Math.Max(1, iterations);
+        _maxIterations = Math.Max(1, maxIterations);
     }
 
     /// <summary>Set the shared view directly (world center + half-height). Pure CPU.</summary>
@@ -202,7 +203,7 @@ public sealed class Renderer : IDisposable
             CC = cC,
             View = viewRect,
             Dims = new Vector4i(_pointCount, _width, _height, _splatRadius),
-            Iter = new Vector4i(_iterations, MaxFractalIterations, _coeffI, _coeffJ),
+            Iter = new Vector4i(_iterations, _maxIterations, _coeffI, _coeffJ),
         };
         _config.Update(ref cfg);
         _config.Bind(1);

@@ -34,6 +34,10 @@ public sealed class ParametersViewModel
     public SliderParam Iterations { get; } =
         new() { Label = "Iterations", Min = 1, Max = 100, Value = 1 };
 
+    /// <summary>Escape-time iteration cap for the escape and coefficients fractals.</summary>
+    public ChoiceParam MaxIterations { get; } =
+        new() { Label = "Max iterations", Options = new[] { 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000 }, Value = 200 };
+
     /// <summary>Which panel is maximized: 0 = grid, 1 = escape fractal, 2 = coefficients fractal.</summary>
     public int DisplayModeIndex { get; private set; }
 
@@ -98,6 +102,7 @@ public sealed class ParametersViewModel
 
         SplatSize.Changed += () => MapChanged?.Invoke();
         Iterations.Changed += () => MapChanged?.Invoke();
+        MaxIterations.Changed += () => MapChanged?.Invoke();
         AxisCount.Changed += () => SeedsChanged?.Invoke();
         PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
 
@@ -140,4 +145,7 @@ public sealed class ParametersViewModel
 
     /// <summary>Iteration count (integer; the slider snaps to whole numbers).</summary>
     public int IterationCount => (int)Math.Round(Iterations.Value);
+
+    /// <summary>Escape-time iteration cap for the fractal panels.</summary>
+    public int MaxIterationsValue => MaxIterations.Value;
 }
