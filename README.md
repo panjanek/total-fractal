@@ -1,2 +1,2 @@
-# total-fractal
+# Total fractal
 Generalized quadratic fractal explorer
