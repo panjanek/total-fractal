@@ -1,0 +1,26 @@
+#version 430 core
+
+// Placeholder "solver": writes a 2D gradient into the destination image, one
+// invocation per pixel. Later this is where the fractal algorithm goes.
+//
+//   red   increases left -> right
+//   green increases bottom -> top
+//   blue  constant 0.5
+//
+// The image is bound to image unit 0 (see Renderer / Texture.BindImage).
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(rgba32f, binding = 0) writeonly uniform image2D destTex;
+
+void main()
+{
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size  = imageSize(destTex);
+
+    // Guard: work groups are rounded up, so some invocations fall outside the image.
+    if (pixel.x >= size.x || pixel.y >= size.y)
+        return;
+
+    vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+    imageStore(destTex, pixel, vec4(uv.x, uv.y, 0.5, 1.0));
+}

@@ -1,8 +1,9 @@
 ﻿<Application x:Class="TotalFractal.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:TotalFractal"
-             StartupUri="MainWindow.xaml">
+             xmlns:local="clr-namespace:TotalFractal">
+    <!-- No StartupUri: startup is handled in App.OnStartup so we can branch into the
+         headless screenshot mode instead of always opening the window. -->
     <Application.Resources>
          
     </Application.Resources>

@@ -16,4 +16,11 @@
         <PackageReference Include="WindowsAPICodePack-Shell" Version="1.1.1" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Shader source files are embedded into the assembly and loaded at runtime
+             via Assembly.GetManifestResourceStream (see EmbeddedShaderSource).
+             Logical resource names become e.g. TotalFractal.Shaders.display.vert -->
+        <EmbeddedResource Include="Shaders\**\*.vert;Shaders\**\*.frag;Shaders\**\*.comp;Shaders\**\*.glsl" />
+    </ItemGroup>
+
 </Project>
