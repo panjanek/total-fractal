@@ -1,0 +1,33 @@
+<Window x:Class="TotalFractal.ConfigWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Config" Width="360" Height="540"
+        WindowStartupLocation="Manual">
+    <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Text="Quadratic map coefficients"
+                   FontWeight="Bold" Margin="10,8" />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6,0,6,8">
+            <!-- One labeled slider per SliderParam in ParametersViewModel.Coefficients.
+                 Adding more parameter controls later = add items to the collection. -->
+            <ItemsControl ItemsSource="{Binding Coefficients}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="4,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="36" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="52" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
+                            <Slider Grid.Column="1" VerticalAlignment="Center"
+                                    Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                    Value="{Binding Value, Mode=TwoWay}" />
+                            <TextBlock Grid.Column="2" Text="{Binding Value, StringFormat=F2}"
+                                       TextAlignment="Right" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

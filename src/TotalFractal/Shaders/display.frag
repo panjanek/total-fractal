@@ -10,5 +10,7 @@ uniform sampler2D srcTex; // bound to texture unit 0
 
 void main()
 {
-    fragColor = texture(srcTex, vUv);
+    // Force opaque alpha so the saved PNG has a solid (black) background rather than a
+    // transparent one - the scatter texture's background texels have alpha 0.
+    fragColor = vec4(texture(srcTex, vUv).rgb, 1.0);
 }

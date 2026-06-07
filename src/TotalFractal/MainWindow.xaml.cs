@@ -3,25 +3,43 @@ using System.Windows.Forms;
 using System.Windows.Forms.Integration;
 using OpenTK.Windowing.Common;
 using TotalFractal.Rendering;
+using TotalFractal.ViewModels;
 using GLControl = OpenTK.GLControl.GLControl;
 using GLControlSettings = OpenTK.GLControl.GLControlSettings;
 
 namespace TotalFractal;
 
 /// <summary>
-/// Interaction logic for MainWindow.xaml. Kept intentionally thin: it only hosts the
-/// GLControl and forwards the context lifecycle (Load/Resize/Paint) to <see cref="Renderer"/>.
-/// All OpenGL work lives in the renderer.
+/// Interaction logic for MainWindow.xaml. Kept intentionally thin: it hosts the GLControl,
+/// forwards the context lifecycle (Load/Resize/Paint) to <see cref="Renderer"/>, and is the
+/// GL-aware coordinator that pushes <see cref="ParametersViewModel"/> changes into the
+/// renderer. All OpenGL work lives in the renderer.
 /// </summary>
 public partial class MainWindow : Window
 {
     private readonly Renderer _renderer = new();
+    private readonly ParametersViewModel _vm;
     private GLControl? _glControl;
     private bool _ready;
 
-    public MainWindow()
+    public MainWindow(ParametersViewModel vm)
     {
         InitializeComponent();
+        _vm = vm;
+        _vm.Changed += ApplyParamsToRenderer;
+    }
+
+    /// <summary>
+    /// Push the current view-model parameters into the renderer and request a repaint.
+    /// Runs on the UI thread; only mutates CPU state - the GL upload happens in Paint.
+    /// </summary>
+    private void ApplyParamsToRenderer()
+    {
+        if (!_ready)
+            return; // GL not initialized yet; GlControl_Load performs the initial sync.
+
+        _renderer.SetMap(_vm.ToMap(), _vm.View, _vm.SplatRadius);
+        _glControl!.Invalidate();
     }
 
     private void parent_Loaded(object sender, RoutedEventArgs e)
@@ -32,7 +50,7 @@ public partial class MainWindow : Window
         var settings = new GLControlSettings
         {
             API = ContextAPI.OpenGL,
-            APIVersion = new Version(4, 3),     // 4.3+ required for compute shaders
+            APIVersion = new Version(4, 5),     // 4.3+ for compute, 4.4+ for glClearTexImage
             Profile = ContextProfile.Core,
             Flags = ContextFlags.ForwardCompatible | ContextFlags.Debug,
         };
@@ -51,7 +69,7 @@ public partial class MainWindow : Window
         _renderer.Initialize();
         _renderer.Resize(_glControl.Width, _glControl.Height);
         _ready = true;
-        _glControl.Invalidate();
+        ApplyParamsToRenderer(); // sync renderer to the view-model's initial values, then repaint
     }
 
     private void GlControl_Resize(object? sender, EventArgs e)

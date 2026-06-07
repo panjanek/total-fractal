@@ -7,7 +7,7 @@ using NativeWindow = OpenTK.Windowing.Desktop.NativeWindow;
 namespace TotalFractal.Infrastructure;
 
 /// <summary>
-/// Provides a current OpenGL 4.3 context without a visible window, so the
+/// Provides a current OpenGL 4.5 context without a visible window, so the
 /// <see cref="TotalFractal.Rendering.Renderer"/> can run headless (used by --screenshot).
 ///
 /// Rendering always targets an offscreen FBO and pixels are read back from that FBO, so
@@ -23,7 +23,7 @@ public sealed class OffscreenContext : IDisposable
         var settings = new NativeWindowSettings
         {
             API = ContextAPI.OpenGL,
-            APIVersion = new Version(4, 3),
+            APIVersion = new Version(4, 5),
             Profile = ContextProfile.Core,
             Flags = ContextFlags.ForwardCompatible,
             StartVisible = false,
