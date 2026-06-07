@@ -32,4 +32,12 @@ public struct QuadraticMap
         => (new Vector4(A1, A2, A3, A4),
             new Vector4(A5, A6, A7, A8),
             new Vector4(A9, A10, A11, A12));
+
+    /// <summary>Read a coefficient a(i+1) by 0-based index (0 = a1 .. 11 = a12).</summary>
+    public readonly float this[int i] => i switch
+    {
+        0 => A1, 1 => A2, 2 => A3, 3 => A4, 4 => A5, 5 => A6,
+        6 => A7, 7 => A8, 8 => A9, 9 => A10, 10 => A11, 11 => A12,
+        _ => throw new ArgumentOutOfRangeException(nameof(i)),
+    };
 }

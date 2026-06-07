@@ -28,6 +28,12 @@ public partial class MainWindow : Window
     private bool _panning;
     private Vector2 _grabWorld;
 
+    // Coefficient-pick drag state: when a left-drag starts over the coefficients-fractal panel we
+    // set the selected pair from the cursor instead of panning. The panel rectangle is captured at
+    // mouse-down so the drag keeps mapping even if the cursor leaves the panel.
+    private bool _pickingCoeff;
+    private Renderer.CoeffPanelRect _coeffPanel;
+
     // Wheel-zoom easing state (CompositionTarget.Rendering tick).
     private bool _viewAnimating;
     private TimeSpan _lastRenderTime;
@@ -127,6 +133,16 @@ public partial class MainWindow : Window
         if (!_ready || e.Button != MouseButtons.Left)
             return;
 
+        // A left-drag over the coefficients-fractal panel sets the selected pair (driving the Julia
+        // panel + sliders + crosshair) instead of panning.
+        if (_renderer.TryPickCoeffValue(e.X, e.Y, out Vector2 picked, out _coeffPanel))
+        {
+            _pickingCoeff = true;
+            _glControl!.Capture = true;
+            ApplyCoeffPick(picked);
+            return;
+        }
+
         _panning = true;
         _glControl!.Capture = true;
         _grabWorld = _renderer.ScreenToWorld(e.X, e.Y, _glControl.Width, _glControl.Height);
@@ -134,11 +150,20 @@ public partial class MainWindow : Window
 
     private void GlControl_MouseMove(object? sender, MouseEventArgs e)
     {
-        if (!_ready || !_panning)
+        if (!_ready)
             return;
 
-        _renderer.PanToKeepWorldAtPixel(_grabWorld, e.X, e.Y, _glControl!.Width, _glControl.Height);
-        _glControl.Invalidate();
+        if (_pickingCoeff)
+        {
+            ApplyCoeffPick(_renderer.CoeffValueFromPanel(_coeffPanel, e.X, e.Y));
+            return;
+        }
+
+        if (_panning)
+        {
+            _renderer.PanToKeepWorldAtPixel(_grabWorld, e.X, e.Y, _glControl!.Width, _glControl.Height);
+            _glControl.Invalidate();
+        }
     }
 
     private void GlControl_MouseUp(object? sender, MouseEventArgs e)
@@ -147,18 +172,39 @@ public partial class MainWindow : Window
             return;
 
         _panning = false;
+        _pickingCoeff = false;
         if (_glControl != null)
             _glControl.Capture = false;
     }
 
     private void GlControl_MouseWheel(object? sender, MouseEventArgs e)
     {
-        if (!_ready)
-            return;
+        if (!_ready || _pickingCoeff)
+            return; // ignore zoom mid-pick: it would shift the captured panel mapping under the drag
 
         float factor = MathF.Pow(1.15f, e.Delta / 120f); // wheel up -> zoom in
         _renderer.ZoomAt(e.X, e.Y, _glControl!.Width, _glControl.Height, factor); // updates the target
         StartViewAnimation();
+    }
+
+    /// <summary>
+    /// Push a coefficient pick (a world point on the coefficients panel) into the view model: clamp
+    /// to each slider's range and set the two selected coefficients. The TwoWay-bound sliders move
+    /// and their Changed event drives the usual MapChanged -> ApplyMap repaint (updating the Julia
+    /// panel and the crosshair). Always invalidates, since SetField suppresses Changed when a value
+    /// is unchanged (e.g. dragging within a single pixel column).
+    /// </summary>
+    private void ApplyCoeffPick(Vector2 worldValue)
+    {
+        int i = _vm.CoeffI, j = _vm.CoeffJ;
+        if (i < 0 || j < 0)
+            return; // the pair may have changed to "none"
+
+        SliderParam pi = _vm.Coefficients[i];
+        SliderParam pj = _vm.Coefficients[j];
+        pi.Value = Math.Clamp(worldValue.X, pi.Min, pi.Max); // X -> a[CoeffI]
+        pj.Value = Math.Clamp(worldValue.Y, pj.Min, pj.Max); // Y -> a[CoeffJ]
+        _glControl!.Invalidate();
     }
 
     // --- Zoom easing: a UI-thread per-frame tick eases the current view toward the target until
