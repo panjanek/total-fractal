@@ -15,7 +15,7 @@ namespace TotalFractal.ViewModels;
 /// </summary>
 public sealed class ParametersViewModel
 {
-    /// <summary>The 12 quadratic-map coefficients a1..a12, each ranged [-5, 5].</summary>
+    /// <summary>The 12 quadratic-map coefficients a1..a12, each ranged [-10, 10].</summary>
     public ObservableCollection<SliderParam> Coefficients { get; }
 
     /// <summary>Splat size: 1 = single pixel, 2, 3. Maps to shader radius = size - 1.</summary>
@@ -128,7 +128,7 @@ public sealed class ParametersViewModel
         Coefficients = new ObservableCollection<SliderParam>();
         for (int i = 0; i < 12; i++)
         {
-            var p = new SliderParam { Label = $"a{i + 1}", Min = -5.0, Max = 5.0, Value = init[i] };
+            var p = new SliderParam { Label = $"a{i + 1}", Min = -10.0, Max = 10.0, Value = init[i] };
             p.Changed += () => MapChanged?.Invoke();
             Coefficients.Add(p);
         }

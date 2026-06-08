@@ -307,9 +307,20 @@ public sealed class Renderer : IDisposable
 
     public void RenderFrame()
     {
-        // 0) Rebuild the seed buffer if axis count / points per axis changed (GL upload here,
-        //    where the context is current).
-        if (_seedsDirty)
+        // Which panels are visible this frame -> which passes are worth computing. With thumbnails
+        // off only the maximized panel is shown, so the other passes are skipped (their textures are
+        // not sampled, and any panel that becomes visible is recomputed on that same frame). Active
+        // list order: scatter = 0, fractal = 1, coeff = 2.
+        int activeCount = ActivePanelCount;
+        int mode = Math.Clamp(_displayMode, 0, activeCount - 1);
+        bool gridNeeded = _showThumbnails || mode == 0;
+        bool escapeNeeded = _showThumbnails || mode == 1;
+        bool coeffNeeded = _coeffI >= 0 && (_showThumbnails || mode == 2);
+
+        // 0) Rebuild the seed buffer if axis count / points per axis changed (GL upload here, where
+        //    the context is current) - but only when the grid is actually drawn; otherwise leave it
+        //    dirty so it rebuilds when the grid next becomes visible.
+        if (_seedsDirty && gridNeeded)
         {
             RebuildSeeds();
             _seedsDirty = false;
@@ -336,28 +347,34 @@ public sealed class Renderer : IDisposable
         _config.Update(ref cfg);
         _config.Bind(1);
 
-        // 2) Grid accumulation pass: clear the visit-count buffer, then atomic-add 1 per plotted texel.
-        GL.ClearTexImage(_accumTex.Handle, 0, PixelFormat.RedInteger, PixelType.UnsignedInt, IntPtr.Zero);
-        _solve.Use();
-        _accumTex.BindImage(0, TextureAccess.ReadWrite); // r32ui image for imageAtomicAdd
-        _seeds.Bind(0);
-        _solve.Dispatch((_pointCount + 255) / 256, 1, 1);
+        // 2) Grid accumulation pass (only when the grid panel is visible): clear the visit-count
+        //    buffer, atomic-add 1 per plotted texel, then resolve count * intensity -> grayscale.
+        if (gridNeeded)
+        {
+            GL.ClearTexImage(_accumTex.Handle, 0, PixelFormat.RedInteger, PixelType.UnsignedInt, IntPtr.Zero);
+            _solve.Use();
+            _accumTex.BindImage(0, TextureAccess.ReadWrite); // r32ui image for imageAtomicAdd
+            _seeds.Bind(0);
+            _solve.Dispatch((_pointCount + 255) / 256, 1, 1);
 
-        // 2b) Resolve pass: map visit count * intensity -> grayscale into the displayed scatter texture.
-        GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit); // solve atomics visible to resolve
-        _resolve.Use();
-        _accumTex.BindImage(0, TextureAccess.ReadOnly);
-        _scatterTex.BindImage(1, TextureAccess.WriteOnly);
-        _resolve.SetFloat("intensity", _gridIntensity);
-        _resolve.Dispatch((_width + 7) / 8, (_height + 7) / 8, 1);
+            GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit); // solve atomics visible to resolve
+            _resolve.Use();
+            _accumTex.BindImage(0, TextureAccess.ReadOnly);
+            _scatterTex.BindImage(1, TextureAccess.WriteOnly);
+            _resolve.SetFloat("intensity", _gridIntensity);
+            _resolve.Dispatch((_width + 7) / 8, (_height + 7) / 8, 1);
+        }
 
         // 3) Escape-time fractal pass (filled Julia set), one invocation per pixel. No clear needed.
-        _escape.Use();
-        _fractalTex.BindImage(1, TextureAccess.WriteOnly);
-        _escape.Dispatch((_fractalTex.Width + 7) / 8, (_fractalTex.Height + 7) / 8, 1);
+        if (escapeNeeded)
+        {
+            _escape.Use();
+            _fractalTex.BindImage(1, TextureAccess.WriteOnly);
+            _escape.Dispatch((_fractalTex.Width + 7) / 8, (_fractalTex.Height + 7) / 8, 1);
+        }
 
-        // 4) Coefficients (parameter-space) fractal pass - only when a coefficient pair is selected.
-        if (_coeffI >= 0)
+        // 4) Coefficients (parameter-space) fractal pass - only when its panel is selected and visible.
+        if (coeffNeeded)
         {
             _coeffProgram.Use();
             _coeffTex.BindImage(2, TextureAccess.WriteOnly);
@@ -378,7 +395,7 @@ public sealed class Renderer : IDisposable
         Texture[] active = _coeffI >= 0
             ? new[] { _scatterTex, _fractalTex, _coeffTex }
             : new[] { _scatterTex, _fractalTex };
-        int mode = Math.Clamp(_displayMode, 0, active.Length - 1);
+        // 'mode' was computed at the top of the frame (active.Length == activeCount).
 
         // Crosshair marker on the coefficients panel: invert the coeffs.comp pixel->coefficient
         // mapping for the currently selected coefficients, using the same shared view rectangle.

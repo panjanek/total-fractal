@@ -8,6 +8,7 @@ using TotalFractal.Rendering;
 using TotalFractal.ViewModels;
 using GLControl = OpenTK.GLControl.GLControl;
 using GLControlSettings = OpenTK.GLControl.GLControlSettings;
+using WindowState = System.Windows.WindowState; // disambiguate from OpenTK.Windowing.Common.WindowState
 
 namespace TotalFractal;
 
@@ -37,6 +38,12 @@ public partial class MainWindow : Window
     // Wheel-zoom easing state (CompositionTarget.Rendering tick).
     private bool _viewAnimating;
     private TimeSpan _lastRenderTime;
+
+    // Fullscreen (borderless-maximized) toggle state; saved windowed values for restore.
+    private bool _fullscreen;
+    private WindowStyle _savedStyle;
+    private WindowState _savedState;
+    private ResizeMode _savedResize;
 
     // Source domain of the seed grid (world space); fixed - only the counts change.
     private static readonly Vector2 SeedMin = new(-1f, -1f);
@@ -121,7 +128,9 @@ public partial class MainWindow : Window
         _glControl.MouseMove += GlControl_MouseMove;
         _glControl.MouseUp += GlControl_MouseUp;
         _glControl.MouseWheel += GlControl_MouseWheel;
-        _glControl.MouseEnter += (_, _) => _glControl!.Focus(); // WinForms wheel needs focus
+        _glControl.KeyDown += GlControl_KeyDown;
+        _glControl.PreviewKeyDown += GlControl_PreviewKeyDown;
+        _glControl.MouseEnter += (_, _) => _glControl!.Focus(); // WinForms wheel + keys need focus
 
         placeholder.Children.Add(new WindowsFormsHost { Child = _glControl });
     }
@@ -186,6 +195,60 @@ public partial class MainWindow : Window
         float factor = MathF.Pow(1.15f, e.Delta / 120f); // wheel up -> zoom in
         _renderer.ZoomAt(e.X, e.Y, _glControl!.Width, _glControl.Height, factor); // updates the target
         StartViewAnimation();
+    }
+
+    private void GlControl_KeyDown(object? sender, KeyEventArgs e)
+    {
+        switch (e.KeyCode)
+        {
+            case Keys.Space: // cycle the maximized panel (same as the "Toggle display" button)
+                _vm.ToggleDisplayCommand.Execute(null);
+                e.Handled = true;
+                break;
+            case Keys.F: // toggle fullscreen
+                ToggleFullscreen();
+                e.Handled = true;
+                break;
+            case Keys.Escape: // exit fullscreen only
+                if (_fullscreen)
+                {
+                    ToggleFullscreen();
+                    e.Handled = true;
+                }
+                break;
+        }
+    }
+
+    // Escape is a WinForms "command key" and won't raise KeyDown on the control unless it is marked
+    // as an input key here. (Space and F are ordinary input keys and arrive without this.)
+    private void GlControl_PreviewKeyDown(object? sender, PreviewKeyDownEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape)
+            e.IsInputKey = true;
+    }
+
+    /// <summary>Toggle borderless-maximized fullscreen for the main window (F to toggle, Esc to exit).</summary>
+    private void ToggleFullscreen()
+    {
+        if (!_fullscreen)
+        {
+            _savedStyle = WindowStyle;
+            _savedState = WindowState;
+            _savedResize = ResizeMode;
+            WindowState = WindowState.Normal;    // so the re-maximize re-extends over the taskbar
+            WindowStyle = WindowStyle.None;
+            ResizeMode = ResizeMode.NoResize;
+            WindowState = WindowState.Maximized; // borderless + maximized = true fullscreen
+            _fullscreen = true;
+        }
+        else
+        {
+            WindowStyle = _savedStyle;
+            ResizeMode = _savedResize;
+            WindowState = _savedState;
+            _fullscreen = false;
+        }
+        _glControl?.Focus(); // keep keyboard focus after the window-state change
     }
 
     /// <summary>
