@@ -70,6 +70,10 @@ public sealed class Renderer : IDisposable
     // Per-visit grey level [0,1] for the accumulating grid plot (resolve: brightness = count * this).
     private float _gridIntensity = 0.5f;
 
+    // Fixed-point weight scale used by solve.comp's blurred splat (MUST match its SPLAT_SCALE); the
+    // resolve intensity is divided by this so a full-weight centre texel keeps the same brightness.
+    private const float SplatScale = 256f;
+
     // Which panel is maximized (index into the active texture list). The others become insets.
     private int _displayMode;
 
@@ -361,7 +365,7 @@ public sealed class Renderer : IDisposable
             _resolve.Use();
             _accumTex.BindImage(0, TextureAccess.ReadOnly);
             _scatterTex.BindImage(1, TextureAccess.WriteOnly);
-            _resolve.SetFloat("intensity", _gridIntensity);
+            _resolve.SetFloat("intensity", _gridIntensity / SplatScale);
             _resolve.Dispatch((_width + 7) / 8, (_height + 7) / 8, 1);
         }
 

@@ -26,29 +26,49 @@ layout(std140, binding = 1) uniform Config {
     ivec4 flags; // x = plotAll (0/1); y,z,w reserved
 };
 
-// Project a world-space point into the texture and atomic-add 1 to each texel of a round splat
-// (radius dims.w; r == 0 hits only the centre). Reads the dst image and the view/dims globals
-// directly. Points off the finite plane (NaN/Inf) or outside the current view contribute nothing.
+// Fixed-point weight scale so the smooth [0,1] falloff can accumulate through integer atomics; the
+// resolve pass divides the count back out (Renderer passes intensity / SplatScale). MUST match
+// Renderer.SplatScale.
+const uint SPLAT_SCALE = 256u;
+
+// Project a world-space point into the texture and accumulate a round splat. Size 1 (r == 0) is a
+// single sharp texel; for r > 0 the texels are weighted by a smooth quartic falloff from the splat's
+// continuous (sub-texel) centre, so the dot is bright in the middle and fades to the edge - a blurred
+// dot. Reads the dst image and the view/dims globals directly; NaN/Inf or out-of-view points contribute nothing.
 void splat(vec2 p)
 {
     if (isinf(p.x) || isnan(p.x) || isinf(p.y) || isnan(p.y))
         return;
 
     vec2 uv = (p - view.xy) / (view.zw - view.xy);
-    ivec2 center = ivec2(uv * vec2(dims.y, dims.z));
-
+    vec2 fp = uv * vec2(dims.y, dims.z); // continuous (sub-texel) pixel position
     int r = dims.w;
+
+    if (r == 0) // size 1: a single sharp texel (identical to before after the resolve / SplatScale)
+    {
+        ivec2 q = ivec2(fp);
+        if (q.x >= 0 && q.y >= 0 && q.x < dims.y && q.y < dims.z)
+            imageAtomicAdd(dst, q, SPLAT_SCALE);
+        return;
+    }
+
+    ivec2 c = ivec2(round(fp));          // window centred on the nearest texel
+    float rr = float((r + 1) * (r + 1)); // soft radius^2: keeps the outer ring's weight > 0 (no collapse at r=1)
     for (int dy = -r; dy <= r; ++dy)
     for (int dx = -r; dx <= r; ++dx)
     {
-        if (dx * dx + dy * dy > r * r)   // round splat; r == 0 writes only the center
+        if (dx * dx + dy * dy > r * r)   // round disk (same bound as before)
             continue;
 
-        ivec2 q = center + ivec2(dx, dy);
+        ivec2 q = c + ivec2(dx, dy);
         if (q.x < 0 || q.y < 0 || q.x >= dims.y || q.y >= dims.z)
             continue;
 
-        imageAtomicAdd(dst, q, 1u);
+        vec2 dd = vec2(q) + 0.5 - fp;    // distance to the true centre (sub-texel anti-aliasing)
+        float t = max(0.0, 1.0 - dot(dd, dd) / rr);
+        uint w = uint(t * t * float(SPLAT_SCALE) + 0.5); // quartic falloff -> blurred
+        if (w != 0u)
+            imageAtomicAdd(dst, q, w);
     }
 }
 
