@@ -38,9 +38,17 @@ public sealed class ParametersViewModel
     public BoolParam PlotAll { get; } =
         new() { Label = "Plot all iteration steps", Value = false };
 
+    /// <summary>Per-visit grey level [0,1] for the accumulating grid plot; brighter where texels are revisited.</summary>
+    public SliderParam Intensity { get; } =
+        new() { Label = "Intensity", Min = 0, Max = 1, Value = 0.5 };
+
     /// <summary>Escape-time iteration cap for the escape and coefficients fractals.</summary>
     public ChoiceParam MaxIterations { get; } =
         new() { Label = "Max iterations", Options = new[] { 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000 }, Value = 200 };
+
+    /// <summary>When checked, the lower-left/right inset thumbnail panels are shown (display-only).</summary>
+    public BoolParam Thumbnails { get; } =
+        new() { Label = "Thumbnails", Value = true };
 
     /// <summary>Which panel is maximized: 0 = grid, 1 = escape fractal, 2 = coefficients fractal.</summary>
     public int DisplayModeIndex { get; private set; }
@@ -128,9 +136,11 @@ public sealed class ParametersViewModel
         SplatSize.Changed += () => MapChanged?.Invoke();
         Iterations.Changed += () => MapChanged?.Invoke();
         PlotAll.Changed += () => MapChanged?.Invoke();
+        Intensity.Changed += () => MapChanged?.Invoke();
         MaxIterations.Changed += () => MapChanged?.Invoke();
         AxisCount.Changed += () => SeedsChanged?.Invoke();
         PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
+        Thumbnails.Changed += () => DisplayChanged?.Invoke();
 
         // "none" + the 66 unordered coefficient pairs.
         var pairs = new List<CoeffPair> { new() { Label = "none", I = -1, J = -1 } };
@@ -193,4 +203,7 @@ public sealed class ParametersViewModel
 
     /// <summary>Escape-time iteration cap for the fractal panels.</summary>
     public int MaxIterationsValue => MaxIterations.Value;
+
+    /// <summary>Per-visit grey level [0,1] for the accumulating grid plot.</summary>
+    public float IntensityValue => (float)Intensity.Value;
 }

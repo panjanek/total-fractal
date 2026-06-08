@@ -4,13 +4,13 @@
 // One invocation per seed point (1D dispatch). Each point is iterated through the map iter.x
 // times. By default only the FINAL position is projected into the texture and scattered as a
 // small round white splat. When the "plot all" flag (flags.x) is set, EVERY iteration step is
-// scattered, drawing each seed's orbit - i.e. an attractor / trajectory plot. Concurrent writes
-// to the same texel are harmless (single colour, last-writer-wins), so heavy overlap at high
-// point/iteration counts simply saturates pixels to white.
+// scattered, drawing each seed's orbit - i.e. an attractor / trajectory plot. Each plotted texel is
+// counted with an atomic add into an r32ui buffer; a later resolve pass turns the per-texel visit
+// count into brightness (count * intensity), so the more often a texel is hit the brighter it is.
 
 layout(local_size_x = 256) in;
 
-layout(rgba8, binding = 0) writeonly uniform image2D dst;
+layout(r32ui, binding = 0) uniform uimage2D dst;
 
 layout(std430, binding = 0) readonly buffer Seeds {
     vec2 seed[];
@@ -26,9 +26,9 @@ layout(std140, binding = 1) uniform Config {
     ivec4 flags; // x = plotAll (0/1); y,z,w reserved
 };
 
-// Project a world-space point into the texture and scatter a round white splat (radius dims.w;
-// r == 0 writes only the centre). Reads the dst image and the view/dims globals directly. Points
-// off the finite plane (NaN/Inf) or outside the current view rectangle contribute nothing.
+// Project a world-space point into the texture and atomic-add 1 to each texel of a round splat
+// (radius dims.w; r == 0 hits only the centre). Reads the dst image and the view/dims globals
+// directly. Points off the finite plane (NaN/Inf) or outside the current view contribute nothing.
 void splat(vec2 p)
 {
     if (isinf(p.x) || isnan(p.x) || isinf(p.y) || isnan(p.y))
@@ -48,7 +48,7 @@ void splat(vec2 p)
         if (q.x < 0 || q.y < 0 || q.x >= dims.y || q.y >= dims.z)
             continue;
 
-        imageStore(dst, q, vec4(1.0));
+        imageAtomicAdd(dst, q, 1u);
     }
 }
 

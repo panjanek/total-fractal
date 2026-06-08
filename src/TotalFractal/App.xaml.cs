@@ -55,8 +55,10 @@ public partial class App : Application
             }
             bool plotAll = e.Args.Contains("--plotall");
             int colorMap = TryGetIntFlag(e.Args, "--colormap", out int cm) ? cm : 0;
+            float intensity = TryGetFloatFlag(e.Args, "--intensity", out float gi) ? gi : 0.5f;
+            bool showThumbnails = !e.Args.Contains("--nothumbnails");
             RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, maxIter, display,
-                viewCenter, viewHalfHeight, coeffI, coeffJ, plotAll, colorMap);
+                viewCenter, viewHalfHeight, coeffI, coeffJ, plotAll, colorMap, intensity, showThumbnails);
             Shutdown();
             return;
         }
@@ -78,17 +80,18 @@ public partial class App : Application
     private static void RunHeadlessScreenshot(
         string path, int width, int height, QuadraticMap map,
         int axisCount, int pointsPerAxis, int splatSize, int iterations, int maxIterations, int displayMode,
-        Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ, bool plotAll, int colorMap)
+        Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ, bool plotAll, int colorMap, float intensity, bool showThumbnails)
     {
         using var context = new OffscreenContext(width, height);
         using var renderer = new Renderer();
         renderer.Initialize();
         renderer.Resize(width, height);
         renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
-        renderer.SetMap(map, splatSize - 1, iterations, maxIterations, plotAll, colorMap); // splat size 1 = single pixel (radius 0)
+        renderer.SetMap(map, splatSize - 1, iterations, maxIterations, plotAll, colorMap, intensity); // splat size 1 = single pixel (radius 0)
         renderer.SetCoeffPair(coeffI, coeffJ);
         renderer.SetView(viewCenter, viewHalfHeight);
         renderer.SetDisplayMode(displayMode); // clamped against the active panel count
+        renderer.SetShowThumbnails(showThumbnails);
         renderer.RenderFrame();
         ScreenshotWriter.Save(renderer.ReadPixels(), renderer.Width, renderer.Height, path);
     }
@@ -208,6 +211,17 @@ public partial class App : Application
         value = 0;
         for (int i = 0; i < args.Length - 1; i++)
             if (args[i] == name && int.TryParse(args[i + 1], out value))
+                return true;
+        return false;
+    }
+
+    /// <summary>Parse an "--name &lt;float&gt;" flag (invariant culture, e.g. --intensity 0.5).</summary>
+    private static bool TryGetFloatFlag(string[] args, string name, out float value)
+    {
+        value = 0f;
+        for (int i = 0; i < args.Length - 1; i++)
+            if (args[i] == name &&
+                float.TryParse(args[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
                 return true;
         return false;
     }

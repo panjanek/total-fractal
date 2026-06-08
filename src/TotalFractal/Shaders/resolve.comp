@@ -1,0 +1,24 @@
+#version 430 core
+
+// Grid resolve pass: turn the per-texel visit count accumulated by solve.comp (r32ui, atomic adds)
+// into the displayed grayscale scatter texture. brightness = min(count * intensity, 1), so a texel
+// visited more often is brighter (a density plot). One invocation per pixel.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(r32ui, binding = 0) readonly  uniform uimage2D accum; // visit counts from solve.comp
+layout(rgba8, binding = 1) writeonly uniform image2D  dst;   // displayed scatter texture
+
+uniform float intensity; // grey level added per visit, [0, 1]
+
+void main()
+{
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 sz = imageSize(accum);
+    if (px.x >= sz.x || px.y >= sz.y)
+        return;
+
+    uint c = imageLoad(accum, px).x;
+    float g = min(float(c) * intensity, 1.0);
+    imageStore(dst, px, vec4(vec3(g), 1.0));
+}

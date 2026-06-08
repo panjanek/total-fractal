@@ -21,8 +21,10 @@ public sealed class Renderer : IDisposable
     private ComputeProgram _solve = null!;
     private ComputeProgram _escape = null!;
     private ComputeProgram _coeffProgram = null!;
+    private ComputeProgram _resolve = null!;
     private ShaderProgram _display = null!;
     private Texture _scatterTex = null!;
+    private Texture _accumTex = null!;
     private Texture _fractalTex = null!;
     private Texture _coeffTex = null!;
     private Framebuffer _fbo = null!;
@@ -65,8 +67,14 @@ public sealed class Renderer : IDisposable
     // Selected fractal colour map id (0 = gradient .. 4 = classic); applied to both fractal passes.
     private int _colorMap;
 
+    // Per-visit grey level [0,1] for the accumulating grid plot (resolve: brightness = count * this).
+    private float _gridIntensity = 0.5f;
+
     // Which panel is maximized (index into the active texture list). The others become insets.
     private int _displayMode;
+
+    // When false, only the maximized panel is drawn (the lower-left/right inset thumbnails are hidden).
+    private bool _showThumbnails = true;
 
     // Coefficients-fractal pair (0-based indexes into a1..a12); -1 = none (panel disabled).
     private int _coeffI = -1;
@@ -106,12 +114,14 @@ public sealed class Renderer : IDisposable
         _solve = new ComputeProgram(EmbeddedShaderSource.Load("solve.comp"), "solve");
         _escape = new ComputeProgram(EmbeddedShaderSource.Load("escape.comp"), "escape");
         _coeffProgram = new ComputeProgram(EmbeddedShaderSource.Load("coeffs.comp"), "coeffs");
+        _resolve = new ComputeProgram(EmbeddedShaderSource.Load("resolve.comp"), "resolve");
         _display = new ShaderProgram(
             EmbeddedShaderSource.Load("display.vert"),
             EmbeddedShaderSource.Load("display.frag"),
             "display");
 
         _scatterTex = new Texture(SizedInternalFormat.Rgba8);
+        _accumTex = new Texture(SizedInternalFormat.R32ui);
         _fractalTex = new Texture(SizedInternalFormat.Rgba8);
         _coeffTex = new Texture(SizedInternalFormat.Rgba8);
         _fbo = new Framebuffer(SizedInternalFormat.Rgba8);
@@ -145,6 +155,9 @@ public sealed class Renderer : IDisposable
     /// <summary>Select which panel is maximized (index into the active texture list).</summary>
     public void SetDisplayMode(int mode) => _displayMode = Math.Clamp(mode, 0, ActivePanelCount - 1);
 
+    /// <summary>Show or hide the inset thumbnail panels (when hidden, only the maximized panel draws).</summary>
+    public void SetShowThumbnails(bool show) => _showThumbnails = show;
+
     /// <summary>Set the coefficients-fractal pair (0-based indexes); pass (-1, -1) to disable it.</summary>
     public void SetCoeffPair(int i, int j)
     {
@@ -156,8 +169,8 @@ public sealed class Renderer : IDisposable
     // grid + escape are always active; the coefficients fractal adds a third when a pair is set.
     private int ActivePanelCount => _coeffI >= 0 ? 3 : 2;
 
-    /// <summary>Set the coefficients, splat radius, grid iterations, fractal max iterations, plot-all flag, and colour map.</summary>
-    public void SetMap(QuadraticMap map, int splatRadius, int iterations, int maxIterations, bool plotAll, int colorMap)
+    /// <summary>Set the coefficients, splat radius, grid iterations, fractal max iterations, plot-all flag, colour map, and grid intensity.</summary>
+    public void SetMap(QuadraticMap map, int splatRadius, int iterations, int maxIterations, bool plotAll, int colorMap, float intensity)
     {
         _map = map;
         _splatRadius = Math.Max(0, splatRadius);
@@ -165,6 +178,7 @@ public sealed class Renderer : IDisposable
         _maxIterations = Math.Max(1, maxIterations);
         _plotAll = plotAll;
         _colorMap = colorMap;
+        _gridIntensity = intensity;
     }
 
     /// <summary>Set the shared view directly (world center + half-height). Instant (no animation).</summary>
@@ -283,6 +297,7 @@ public sealed class Renderer : IDisposable
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
         _scatterTex.Allocate(_width, _height);
+        _accumTex.Allocate(_width, _height); // r32ui visit-count buffer for the accumulating grid plot
         // Both textures are full-resolution; either can be maximized or shown as the inset
         // (the inset viewport downscales via the sampler), so the toggle needs no reallocation.
         _fractalTex.Allocate(_width, _height);
@@ -321,12 +336,20 @@ public sealed class Renderer : IDisposable
         _config.Update(ref cfg);
         _config.Bind(1);
 
-        // 2) Grid scatter pass: clear the scatter target, then scatter the transformed points.
-        GL.ClearTexImage(_scatterTex.Handle, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
+        // 2) Grid accumulation pass: clear the visit-count buffer, then atomic-add 1 per plotted texel.
+        GL.ClearTexImage(_accumTex.Handle, 0, PixelFormat.RedInteger, PixelType.UnsignedInt, IntPtr.Zero);
         _solve.Use();
-        _scatterTex.BindImage(0, TextureAccess.WriteOnly);
+        _accumTex.BindImage(0, TextureAccess.ReadWrite); // r32ui image for imageAtomicAdd
         _seeds.Bind(0);
         _solve.Dispatch((_pointCount + 255) / 256, 1, 1);
+
+        // 2b) Resolve pass: map visit count * intensity -> grayscale into the displayed scatter texture.
+        GL.MemoryBarrier(MemoryBarrierFlags.ShaderImageAccessBarrierBit); // solve atomics visible to resolve
+        _resolve.Use();
+        _accumTex.BindImage(0, TextureAccess.ReadOnly);
+        _scatterTex.BindImage(1, TextureAccess.WriteOnly);
+        _resolve.SetFloat("intensity", _gridIntensity);
+        _resolve.Dispatch((_width + 7) / 8, (_height + 7) / 8, 1);
 
         // 3) Escape-time fractal pass (filled Julia set), one invocation per pixel. No clear needed.
         _escape.Use();
@@ -387,6 +410,8 @@ public sealed class Renderer : IDisposable
     {
         dst.Clear();
         dst.Add(new PanelRect(mode, 0, 0, _width, _height));
+        if (!_showThumbnails)
+            return; // thumbnails off: only the maximized panel
         int iw = _width / 3, ih = _height / 3, slot = 0;
         for (int k = 0; k < activeCount; k++)
         {
@@ -451,11 +476,13 @@ public sealed class Renderer : IDisposable
         _quad?.Dispose();
         _fbo?.Dispose();
         _scatterTex?.Dispose();
+        _accumTex?.Dispose();
         _fractalTex?.Dispose();
         _coeffTex?.Dispose();
         _display?.Dispose();
         _escape?.Dispose();
         _coeffProgram?.Dispose();
+        _resolve?.Dispose();
         _solve?.Dispose();
     }
 }
