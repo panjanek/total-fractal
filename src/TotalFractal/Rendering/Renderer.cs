@@ -62,6 +62,9 @@ public sealed class Renderer : IDisposable
     // When true, the grid pass plots every iteration step (the orbit), not just the final point.
     private bool _plotAll;
 
+    // Selected fractal colour map id (0 = gradient .. 4 = classic); applied to both fractal passes.
+    private int _colorMap;
+
     // Which panel is maximized (index into the active texture list). The others become insets.
     private int _displayMode;
 
@@ -153,14 +156,15 @@ public sealed class Renderer : IDisposable
     // grid + escape are always active; the coefficients fractal adds a third when a pair is set.
     private int ActivePanelCount => _coeffI >= 0 ? 3 : 2;
 
-    /// <summary>Set the map coefficients, splat radius, grid iterations, fractal max iterations, and plot-all flag.</summary>
-    public void SetMap(QuadraticMap map, int splatRadius, int iterations, int maxIterations, bool plotAll)
+    /// <summary>Set the coefficients, splat radius, grid iterations, fractal max iterations, plot-all flag, and colour map.</summary>
+    public void SetMap(QuadraticMap map, int splatRadius, int iterations, int maxIterations, bool plotAll, int colorMap)
     {
         _map = map;
         _splatRadius = Math.Max(0, splatRadius);
         _iterations = Math.Max(1, iterations);
         _maxIterations = Math.Max(1, maxIterations);
         _plotAll = plotAll;
+        _colorMap = colorMap;
     }
 
     /// <summary>Set the shared view directly (world center + half-height). Instant (no animation).</summary>
@@ -312,7 +316,7 @@ public sealed class Renderer : IDisposable
             View = viewRect,
             Dims = new Vector4i(_pointCount, _width, _height, _splatRadius),
             Iter = new Vector4i(_iterations, _maxIterations, _coeffI, _coeffJ),
-            Flags = new Vector4i(_plotAll ? 1 : 0, 0, 0, 0),
+            Flags = new Vector4i(_plotAll ? 1 : 0, _colorMap, 0, 0),
         };
         _config.Update(ref cfg);
         _config.Bind(1);

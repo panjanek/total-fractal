@@ -55,6 +55,11 @@
                         <ComboBox ItemsSource="{Binding CoeffPairs}" DisplayMemberPath="Label"
                                   SelectedItem="{Binding SelectedCoeffPair, Mode=TwoWay}" />
                     </DockPanel>
+                    <DockPanel Margin="2,3">
+                        <TextBlock Width="110" Text="Color map" VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding ColorMaps}" DisplayMemberPath="Label"
+                                  SelectedItem="{Binding SelectedColorMap, Mode=TwoWay}" />
+                    </DockPanel>
                 </StackPanel>
             </GroupBox>
 

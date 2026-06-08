@@ -82,7 +82,7 @@ public partial class MainWindow : Window
         if (!_ready)
             return; // GL not initialized yet; GlControl_Load performs the initial sync.
 
-        _renderer.SetMap(_vm.ToMap(), _vm.SplatRadius, _vm.IterationCount, _vm.MaxIterationsValue, _vm.PlotAll.Value);
+        _renderer.SetMap(_vm.ToMap(), _vm.SplatRadius, _vm.IterationCount, _vm.MaxIterationsValue, _vm.PlotAll.Value, _vm.ColorMapId);
         _glControl!.Invalidate();
     }
 

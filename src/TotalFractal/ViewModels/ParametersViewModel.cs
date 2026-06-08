@@ -20,7 +20,7 @@ public sealed class ParametersViewModel
 
     /// <summary>Splat size: 1 = single pixel, 2, 3. Maps to shader radius = size - 1.</summary>
     public ChoiceParam SplatSize { get; } =
-        new() { Label = "Splat size", Options = new[] { 1, 2, 3 }, Value = 2 };
+        new() { Label = "Splat size", Options = new[] { 1, 2, 3 }, Value = 1 };
 
     /// <summary>Number of grid lines per axis.</summary>
     public ChoiceParam AxisCount { get; } =
@@ -32,7 +32,7 @@ public sealed class ParametersViewModel
 
     /// <summary>How many times the map is applied to each seed before its final point is drawn.</summary>
     public SliderParam Iterations { get; } =
-        new() { Label = "Iterations", Min = 1, Max = 10000, Value = 1 };
+        new() { Label = "Iterations", Min = 1, Max = 1000000, Value = 1 };
 
     /// <summary>When true, the grid pass plots every iteration step (the orbit), not just the final point.</summary>
     public BoolParam PlotAll { get; } =
@@ -75,6 +75,26 @@ public sealed class ParametersViewModel
 
     /// <summary>Number of active display modes: 2 (grid, escape) or 3 when a coeff pair is selected.</summary>
     public int ActiveModeCount => SelectedCoeffPair.IsNone ? 2 : 3;
+
+    /// <summary>The fractal colour maps for the "Color map" dropdown (Id is passed to the shaders).</summary>
+    public IReadOnlyList<ColorMap> ColorMaps { get; }
+
+    private ColorMap _selectedColorMap;
+    /// <summary>Selected fractal colour map; recolours both fractal panels (cheap UBO update).</summary>
+    public ColorMap SelectedColorMap
+    {
+        get => _selectedColorMap;
+        set
+        {
+            if (ReferenceEquals(_selectedColorMap, value) || value is null)
+                return;
+            _selectedColorMap = value;
+            MapChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Selected colour map id (0 = gradient .. 4 = classic).</summary>
+    public int ColorMapId => SelectedColorMap.Id;
 
     /// <summary>Cheap update: coefficients or splat changed (UBO only, no buffer rebuild).</summary>
     public event Action? MapChanged;
@@ -121,6 +141,16 @@ public sealed class ParametersViewModel
         // Default to a1-a7 so the coefficients (Mandelbrot) fractal panel is visible on startup.
         _selectedCoeffPair = pairs.First(p => p.I == 0 && p.J == 6);
         UpdateCoeffHighlights();
+
+        ColorMaps = new List<ColorMap>
+        {
+            new() { Label = "Gradient",   Id = 0 },
+            new() { Label = "Monochrome", Id = 1 },
+            new() { Label = "Viridis",    Id = 2 },
+            new() { Label = "Magma",      Id = 3 },
+            new() { Label = "Classic",    Id = 4 },
+        };
+        _selectedColorMap = ColorMaps[0]; // Gradient (default)
 
         ToggleDisplayCommand = new RelayCommand(_ =>
         {

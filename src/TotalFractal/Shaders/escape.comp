@@ -23,11 +23,42 @@ layout(std140, binding = 1) uniform Config {
 
 const float R2 = 1.0e6; // bailout radius^2 - generous; quadratic divergence is doubly-exponential
 
-vec3 palette(float t)
+vec3 viridis(float t)
 {
-    // Full-brightness cosine palette (no black ramp - the bounded set is coloured black
-    // by an explicit branch, escapers are always visibly coloured).
-    return 0.5 + 0.5 * cos(6.28318 * (vec3(0.00, 0.33, 0.67) + t));
+    const vec3 c0 = vec3(0.2777273272234177, 0.005407344544966578, 0.3340998053353061);
+    const vec3 c1 = vec3(0.1050930431085774, 1.404613529898575, 1.384590162594685);
+    const vec3 c2 = vec3(-0.3308618287255563, 0.214847559468213, 0.09509516302823659);
+    const vec3 c3 = vec3(-4.634230498983486, -5.799100973351585, -19.33244095627987);
+    const vec3 c4 = vec3(6.228269936347081, 14.17993336680509, 56.69055260068105);
+    const vec3 c5 = vec3(4.776384997670288, -13.74514537774601, -65.35303263337234);
+    const vec3 c6 = vec3(-5.435455855934631, 4.645852612178535, 26.3124352495832);
+    return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))));
+}
+
+vec3 magma(float t)
+{
+    const vec3 c0 = vec3(-0.002136485053939, -0.000749655052795, -0.005386127855323);
+    const vec3 c1 = vec3(0.2516605407371642, 0.6775232436837668, 2.494026599312351);
+    const vec3 c2 = vec3(8.353717279216625, -3.577719514958484, 0.3144679030132573);
+    const vec3 c3 = vec3(-27.66873308576866, 14.26473078096533, -13.64921318813922);
+    const vec3 c4 = vec3(52.17613981234068, -27.94360607168351, 12.94416944238394);
+    const vec3 c5 = vec3(-50.76852536473588, 29.04658282127291, 4.23415299384598);
+    const vec3 c6 = vec3(18.65570506591883, -11.48977351997711, -5.601961508734096);
+    return c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6)))));
+}
+
+// Map a smooth escape count to colour via the palette selected in flags.y:
+//   0 = indigo->gold gradient (default), 1 = amber monochrome, 2 = viridis, 3 = magma, 4 = classic.
+vec3 colormap(float sn, int mode)
+{
+    if (mode == 4) // classic cycling rainbow (now fed the smooth count)
+        return 0.5 + 0.5 * cos(6.28318 * (vec3(0.00, 0.33, 0.67) + sn * 0.04));
+
+    float f = 1.0 - exp(-max(sn, 0.0) * 0.12); // non-cycling ramp -> [0,1)
+    if (mode == 1) return mix(vec3(0.0), vec3(1.00, 0.66, 0.18), f);   // monochrome (amber)
+    if (mode == 2) return clamp(viridis(f), 0.0, 1.0);
+    if (mode == 3) return clamp(magma(f), 0.0, 1.0);
+    return mix(vec3(0.10, 0.06, 0.30), vec3(1.00, 0.80, 0.30), f);     // 0 = indigo -> gold
 }
 
 void main()
@@ -55,14 +86,17 @@ void main()
             break;
     }
 
-    // Classic Mandelbrot: bounded (n reached maxIter) -> black; escaping -> colour by escape
-    // count. Index by n with a small frequency: quadratic divergence is fast, so escape counts
-    // are small and n/maxIter would squash all exterior colour into one band.
+    // Bounded (n reached maxIter) -> black. Escaping -> smooth (fractional) escape count fed to the
+    // colour map selected by flags.y; the smoothing removes the integer banding for clean gradients.
     vec3 color;
     if (n >= maxIter)
         color = vec3(0.0);
     else
-        color = palette(float(n) * 0.04);
+    {
+        float log_zn = 0.5 * log(x * x + y * y);                        // log|z| at escape
+        float sn = float(n) + 1.0 - log(log_zn / log(1000.0)) / log(2.0);
+        color = colormap(sn, flags.y);
+    }
 
     imageStore(fractalDst, px, vec4(color, 1.0));
 }
