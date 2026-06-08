@@ -15,7 +15,7 @@ namespace TotalFractal.ViewModels;
 /// </summary>
 public sealed class ParametersViewModel
 {
-    /// <summary>The 12 quadratic-map coefficients a1..a12, each ranged [-2, 2].</summary>
+    /// <summary>The 12 quadratic-map coefficients a1..a12, each ranged [-5, 5].</summary>
     public ObservableCollection<SliderParam> Coefficients { get; }
 
     /// <summary>Splat size: 1 = single pixel, 2, 3. Maps to shader radius = size - 1.</summary>
@@ -28,11 +28,15 @@ public sealed class ParametersViewModel
 
     /// <summary>Sample points along each grid line.</summary>
     public ChoiceParam PointsPerAxis { get; } =
-        new() { Label = "Points per axis", Options = new[] { 100, 1000, 10000 }, Value = 1000 };
+        new() { Label = "Points per axis", Options = new[] { 1, 10, 100, 1000, 10000, 50000 }, Value = 1000 };
 
     /// <summary>How many times the map is applied to each seed before its final point is drawn.</summary>
     public SliderParam Iterations { get; } =
-        new() { Label = "Iterations", Min = 1, Max = 100, Value = 1 };
+        new() { Label = "Iterations", Min = 1, Max = 10000, Value = 1 };
+
+    /// <summary>When true, the grid pass plots every iteration step (the orbit), not just the final point.</summary>
+    public BoolParam PlotAll { get; } =
+        new() { Label = "Plot all iteration steps", Value = false };
 
     /// <summary>Escape-time iteration cap for the escape and coefficients fractals.</summary>
     public ChoiceParam MaxIterations { get; } =
@@ -57,6 +61,7 @@ public sealed class ParametersViewModel
             if (ReferenceEquals(_selectedCoeffPair, value) || value is null)
                 return;
             _selectedCoeffPair = value;
+            UpdateCoeffHighlights();
             // Switching to "none" may drop the active mode count; keep the index in range.
             if (DisplayModeIndex >= ActiveModeCount)
                 DisplayModeIndex = ActiveModeCount - 1;
@@ -95,13 +100,14 @@ public sealed class ParametersViewModel
         Coefficients = new ObservableCollection<SliderParam>();
         for (int i = 0; i < 12; i++)
         {
-            var p = new SliderParam { Label = $"a{i + 1}", Value = init[i] };
+            var p = new SliderParam { Label = $"a{i + 1}", Min = -5.0, Max = 5.0, Value = init[i] };
             p.Changed += () => MapChanged?.Invoke();
             Coefficients.Add(p);
         }
 
         SplatSize.Changed += () => MapChanged?.Invoke();
         Iterations.Changed += () => MapChanged?.Invoke();
+        PlotAll.Changed += () => MapChanged?.Invoke();
         MaxIterations.Changed += () => MapChanged?.Invoke();
         AxisCount.Changed += () => SeedsChanged?.Invoke();
         PointsPerAxis.Changed += () => SeedsChanged?.Invoke();
@@ -112,13 +118,22 @@ public sealed class ParametersViewModel
             for (int j = i + 1; j < 12; j++)
                 pairs.Add(new CoeffPair { Label = $"a{i + 1}-a{j + 1}", I = i, J = j });
         CoeffPairs = pairs;
-        _selectedCoeffPair = pairs[0]; // none
+        // Default to a1-a7 so the coefficients (Mandelbrot) fractal panel is visible on startup.
+        _selectedCoeffPair = pairs.First(p => p.I == 0 && p.J == 6);
+        UpdateCoeffHighlights();
 
         ToggleDisplayCommand = new RelayCommand(_ =>
         {
             DisplayModeIndex = (DisplayModeIndex + 1) % ActiveModeCount; // 2 or 3 modes
             DisplayChanged?.Invoke();
         });
+    }
+
+    /// <summary>Highlight the two coefficients of the selected pair (none -> clears all highlights).</summary>
+    private void UpdateCoeffHighlights()
+    {
+        for (int k = 0; k < Coefficients.Count; k++)
+            Coefficients[k].IsHighlighted = (k == CoeffI || k == CoeffJ);
     }
 
     /// <summary>Pack the 12 slider values (cast to float) into a <see cref="QuadraticMap"/>.</summary>

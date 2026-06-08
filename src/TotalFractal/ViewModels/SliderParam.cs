@@ -24,4 +24,12 @@ public sealed class SliderParam : ObservableObject
 
     /// <summary>Raised whenever <see cref="Value"/> changes (e.g. the user drags the slider).</summary>
     public event Action? Changed;
+
+    private bool _isHighlighted;
+    /// <summary>True when this coefficient belongs to the selected coefficient pair (UI highlight only).</summary>
+    public bool IsHighlighted
+    {
+        get => _isHighlighted;
+        set => SetField(ref _isHighlighted, value);
+    }
 }

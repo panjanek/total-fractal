@@ -18,6 +18,7 @@ layout(std140, binding = 1) uniform Config {
     vec4 view;  // shared world rectangle: xmin ymin xmax ymax
     ivec4 dims; // pointCount, texW, texH, splatRadius
     ivec4 iter; // x = grid iterations (unused here), y = fractal max iterations
+    ivec4 flags; // x = plotAll (grid pass only); unused here
 };
 
 const float R2 = 1.0e6; // bailout radius^2 - generous; quadratic divergence is doubly-exponential

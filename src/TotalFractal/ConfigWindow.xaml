@@ -37,6 +37,8 @@
                                 Value="{Binding Iterations.Value, Mode=TwoWay}"
                                 IsSnapToTickEnabled="True" TickFrequency="1" VerticalAlignment="Center" />
                     </DockPanel>
+                    <CheckBox Content="{Binding PlotAll.Label}" IsChecked="{Binding PlotAll.Value, Mode=TwoWay}"
+                              Margin="2,6,2,3" VerticalAlignment="Center" />
                 </StackPanel>
             </GroupBox>
 
@@ -61,20 +63,32 @@
                 <ItemsControl ItemsSource="{Binding Coefficients}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="4,3">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="36" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="52" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
-                                <Slider Grid.Column="1" VerticalAlignment="Center"
-                                        Minimum="{Binding Min}" Maximum="{Binding Max}"
-                                        SmallChange="0.001"
-                                        Value="{Binding Value, Mode=TwoWay}" />
-                                <TextBlock Grid.Column="2" Text="{Binding Value, StringFormat=F3}"
-                                           TextAlignment="Right" VerticalAlignment="Center" />
-                            </Grid>
+                            <Border CornerRadius="3" Margin="0,1">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                                                <Setter Property="Background" Value="#332D7DD2" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid Margin="4,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="36" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="52" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
+                                    <Slider Grid.Column="1" VerticalAlignment="Center"
+                                            Minimum="{Binding Min}" Maximum="{Binding Max}"
+                                            SmallChange="0.001"
+                                            Value="{Binding Value, Mode=TwoWay}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding Value, StringFormat=F3}"
+                                               TextAlignment="Right" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

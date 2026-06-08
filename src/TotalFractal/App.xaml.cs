@@ -53,8 +53,9 @@ public partial class App : Application
                 coeffI = ci;
                 coeffJ = cj;
             }
+            bool plotAll = e.Args.Contains("--plotall");
             RunHeadlessScreenshot(path, width, height, map, axis, points, splatSize, iterations, maxIter, display,
-                viewCenter, viewHalfHeight, coeffI, coeffJ);
+                viewCenter, viewHalfHeight, coeffI, coeffJ, plotAll);
             Shutdown();
             return;
         }
@@ -76,14 +77,14 @@ public partial class App : Application
     private static void RunHeadlessScreenshot(
         string path, int width, int height, QuadraticMap map,
         int axisCount, int pointsPerAxis, int splatSize, int iterations, int maxIterations, int displayMode,
-        Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ)
+        Vector2 viewCenter, float viewHalfHeight, int coeffI, int coeffJ, bool plotAll)
     {
         using var context = new OffscreenContext(width, height);
         using var renderer = new Renderer();
         renderer.Initialize();
         renderer.Resize(width, height);
         renderer.SetSeeds(axisCount, pointsPerAxis, SeedMin, SeedMax);
-        renderer.SetMap(map, splatSize - 1, iterations, maxIterations); // splat size 1 = single pixel (radius 0)
+        renderer.SetMap(map, splatSize - 1, iterations, maxIterations, plotAll); // splat size 1 = single pixel (radius 0)
         renderer.SetCoeffPair(coeffI, coeffJ);
         renderer.SetView(viewCenter, viewHalfHeight);
         renderer.SetDisplayMode(displayMode); // clamped against the active panel count

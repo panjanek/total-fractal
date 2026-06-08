@@ -1,10 +1,12 @@
 #version 430 core
 
 // Stage 1: visualize the general 2D quadratic map (Sprott form).
-// One invocation per seed point (1D dispatch). Each point is iterated through the map
-// iter.x times, and only the final position is projected from world space into the texture
-// via the view rectangle and scattered as a small round white splat. Concurrent writes to
-// the same texel are harmless here (single colour, last-writer-wins).
+// One invocation per seed point (1D dispatch). Each point is iterated through the map iter.x
+// times. By default only the FINAL position is projected into the texture and scattered as a
+// small round white splat. When the "plot all" flag (flags.x) is set, EVERY iteration step is
+// scattered, drawing each seed's orbit - i.e. an attractor / trajectory plot. Concurrent writes
+// to the same texel are harmless (single colour, last-writer-wins), so heavy overlap at high
+// point/iteration counts simply saturates pixels to white.
 
 layout(local_size_x = 256) in;
 
@@ -15,13 +17,40 @@ layout(std430, binding = 0) readonly buffer Seeds {
 };
 
 layout(std140, binding = 1) uniform Config {
-    vec4 cA;    // a1 a2 a3 a4
-    vec4 cB;    // a5 a6 a7 a8
-    vec4 cC;    // a9 a10 a11 a12
-    vec4 view;  // xmin ymin xmax ymax
-    ivec4 dims; // pointCount, texW, texH, splatRadius
-    ivec4 iter; // x = iterations; y,z,w reserved
+    vec4 cA;     // a1 a2 a3 a4
+    vec4 cB;     // a5 a6 a7 a8
+    vec4 cC;     // a9 a10 a11 a12
+    vec4 view;   // xmin ymin xmax ymax
+    ivec4 dims;  // pointCount, texW, texH, splatRadius
+    ivec4 iter;  // x = iterations; y,z,w reserved
+    ivec4 flags; // x = plotAll (0/1); y,z,w reserved
 };
+
+// Project a world-space point into the texture and scatter a round white splat (radius dims.w;
+// r == 0 writes only the centre). Reads the dst image and the view/dims globals directly. Points
+// off the finite plane (NaN/Inf) or outside the current view rectangle contribute nothing.
+void splat(vec2 p)
+{
+    if (isinf(p.x) || isnan(p.x) || isinf(p.y) || isnan(p.y))
+        return;
+
+    vec2 uv = (p - view.xy) / (view.zw - view.xy);
+    ivec2 center = ivec2(uv * vec2(dims.y, dims.z));
+
+    int r = dims.w;
+    for (int dy = -r; dy <= r; ++dy)
+    for (int dx = -r; dx <= r; ++dx)
+    {
+        if (dx * dx + dy * dy > r * r)   // round splat; r == 0 writes only the center
+            continue;
+
+        ivec2 q = center + ivec2(dx, dy);
+        if (q.x < 0 || q.y < 0 || q.x >= dims.y || q.y >= dims.z)
+            continue;
+
+        imageStore(dst, q, vec4(1.0));
+    }
+}
 
 void main()
 {
@@ -31,9 +60,10 @@ void main()
 
     float x = seed[i].x;
     float y = seed[i].y;
+    bool plotAll = flags.x != 0;
 
     // Apply the map iter.x times; both new values must come from the SAME (x, y), so use
-    // temporaries. Only the final position is drawn.
+    // temporaries.
     //   x' = a1 + a2 x + a3 y + a4 x^2 + a5 xy + a6 y^2
     //   y' = a7 + a8 x + a9 y + a10 x^2 + a11 xy + a12 y^2
     for (int n = 0; n < iter.x; ++n)
@@ -44,30 +74,14 @@ void main()
         y = ny;
 
         // Escape early-out: a diverging orbit lands off the finite view, so stop iterating
-        // (also catches NaN, which fails the comparison). Such points are simply not drawn.
+        // (also catches NaN, which fails the comparison). The escaped point itself is not drawn.
         if (!(x * x + y * y < 1.0e12))
             return;
+
+        if (plotAll)            // orbit mode: plot the point after every step (1..N)
+            splat(vec2(x, y));
     }
 
-    // Final guard against blow-ups.
-    if (isinf(x) || isnan(x) || isinf(y) || isnan(y))
-        return;
-
-    // World -> normalized -> pixel.
-    vec2 uv = (vec2(x, y) - view.xy) / (view.zw - view.xy);
-    ivec2 center = ivec2(uv * vec2(dims.y, dims.z));
-
-    int r = dims.w;
-    for (int dy = -r; dy <= r; ++dy)
-    for (int dx = -r; dx <= r; ++dx)
-    {
-        if (dx * dx + dy * dy > r * r)   // round splat; r == 0 writes only the center
-            continue;
-
-        ivec2 p = center + ivec2(dx, dy);
-        if (p.x < 0 || p.y < 0 || p.x >= dims.y || p.y >= dims.z)
-            continue;
-
-        imageStore(dst, p, vec4(1.0));
-    }
+    if (!plotAll)               // default: only the final position
+        splat(vec2(x, y));
 }
